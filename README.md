@@ -2,7 +2,7 @@
 
 Keep memorable snippets from Spotify podcasts and YouTube videos — without breaking your listening flow, and without typing. Each snippet is a clean card with the quote, the original audio clip, an optional hand drawing, a one-tap jump back to the exact second, and thoughts you add over time (each stamped with date/time and, optionally, a position in the episode).
 
-No accounts, no server, no tracking: snippets live in your phone's browser storage and audio clips in its IndexedDB. Use **⋮ → Export backup** occasionally to keep a JSON copy (it includes the audio). Note: live transcription uses the browser's built-in speech service (Google's, on Android Chrome) — the saved audio itself never leaves your phone.
+No accounts, no server, no tracking: everything lives in your phone's browser storage. Use **⋮ → Export backup** occasionally to keep a JSON copy. Note: live transcription uses the browser's built-in speech service (Google's, on Android Chrome).
 
 ## Files
 
@@ -31,15 +31,14 @@ The share-sheet integration requires the app to be served over HTTPS. Easiest pa
 
 ## Daily use
 
-**Spotify (podcast):** at the memorable moment tap **Share → "Share from …" (current timestamp) → Moments**. The link, episode title and timestamp are pre-filled. Then **press and hold the record pad**: it records through the microphone and transcribes live into the quote field (release to stop). Save, switch back.
+**Spotify (podcast):** at the memorable moment tap **Share → "Share from …" (current timestamp) → Moments**. The app opens **already listening** — link, title and timestamp pre-filled, transcription running. Rewind the podcast a few seconds (⏪ in the notification shade) so the line replays near the speaker, tap **■ Done**, and the transcript appears as tappable words with the likely line pre-highlighted. Tap the first and last word to choose a different part, then **Save**.
 
-- Spotify keeps playing in the background while Moments is open. On **loudspeaker**, the pad captures and transcribes the podcast's own words — rewind a few seconds first if you want the exact line. With **headphones**, just say the line in your own words.
-- The first hold asks for microphone permission once. The chip next to the pad toggles transcription language (`de-DE` / `en-US`).
-- The audio clip itself is kept on the card, playable anytime — even if the transcription missed a word.
+- Spotify keeps playing in the background while Moments is open. On **loudspeaker** the podcast transcribes itself; with **headphones**, say the line in your own words instead.
+- The first use asks for microphone permission once. The chip next to the button toggles transcription language (`de-DE` / `en-US`).
 
-**YouTube:** tap **Share**, tick **"Start at [current time]"**, pick **Moments** — same hold-to-record flow.
+**YouTube:** tap **Share**, tick **"Start at [current time]"**, pick **Moments** — same flow.
 
-**Later:** open a card → **▶ Play from …** reopens Spotify/YouTube at that exact second. Add thoughts anytime — also by holding a record pad, no typing — and give a thought a position like `34:12` to get its own jump link.
+**Later:** open a card → **▶ Play from …** reopens Spotify/YouTube at that exact second. Add thoughts anytime by voice (🎤 Speak) or typing, and give a thought a position like `34:12` to get its own jump link.
 
 ## Updating the app
 

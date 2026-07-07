@@ -89,15 +89,17 @@
   #doodleCanvas{width:100%; touch-action:none; border:1px solid var(--line); border-radius:12px; background:#fff; display:block}
   .sheet .row{margin-top:12px}
 
-  /* recorder */
-  .recpad{border:2px dashed var(--line); border-radius:16px; background:var(--card); padding:20px 16px; text-align:center;
-    color:var(--muted); font-size:15px; user-select:none; -webkit-user-select:none; touch-action:none; cursor:pointer}
-  .recpad b{color:var(--ink)}
-  .recpad .mic{font-size:26px; display:block; margin-bottom:4px}
-  .recpad.rec{border-color:var(--danger); background:#FDF6F4; animation:pulse 1.2s infinite}
-  .recpad.rec b{color:var(--danger)}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(164,69,60,.25)}70%{box-shadow:0 0 0 14px rgba(164,69,60,0)}100%{box-shadow:0 0 0 0 rgba(164,69,60,0)}}
-  .recpad .live{display:block; margin-top:8px; font-style:italic; color:var(--ink); min-height:1.3em; font-family:var(--serif)}
+  /* live transcript */
+  .txpanel{border:1px solid var(--line); border-radius:14px; background:var(--card); padding:14px;
+    min-height:80px; line-height:2.1; font-family:var(--serif); font-size:17px}
+  .txpanel.listening{border-color:var(--danger)}
+  .txword{padding:3px 5px; border-radius:6px; cursor:pointer; color:var(--muted)}
+  .txword.sel{background:#EBE3D2; color:var(--ink)}
+  .txlivetext{color:var(--ink)}
+  .cursor{color:var(--danger); animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:0}}
+  .txbtn{background:var(--ink); color:var(--paper); border:none; border-radius:12px; padding:12px; font-size:15px; font-weight:600; cursor:pointer}
+  .txbtn.stop{background:var(--danger)}
   .audiochip{display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:8px 12px; margin-top:10px}
   .audiochip audio{flex:1; height:36px; min-width:0}
   .audiochip .rm{border:none; background:none; color:var(--danger); font-size:13px; cursor:pointer; flex:none}
@@ -173,73 +175,54 @@ function delSnippetAudio(sn){
   (sn.thoughts || []).forEach(th => { if (th.audio) audioDel(th.audio.id); });
 }
 
-/* ---------- hold-to-record ---------- */
-let micStream = null;
-function stopMic(){ if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; } }
+/* ---------- live transcription (speech recognition only — a MediaRecorder would
+   hold the mic exclusively, which breaks recognition on Android and fights Spotify) ---------- */
 function getLang(){
   return localStorage.getItem('moments.lang') ||
     ((navigator.language || 'en').toLowerCase().startsWith('de') ? 'de-DE' : 'en-US');
 }
 function toggleLang(){ localStorage.setItem('moments.lang', getLang() === 'de-DE' ? 'en-US' : 'de-DE'); }
 
-function bindRecorder(pad, liveEl, onDone){
-  let holding = false, mr = null, chunks = [], rec = null, t0 = 0, finalTxt = '', lastInterim = '';
-  pad.addEventListener('pointerdown', async e => {
-    e.preventDefault();
-    if (holding) return;
-    holding = true;
-    try { pad.setPointerCapture(e.pointerId); } catch(err) {}
-    if (!micStream) {
-      liveEl.textContent = 'Allow microphone…';
-      try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-      catch(err) { holding = false; liveEl.textContent = ''; toast('Microphone not available.'); return; }
-      if (!holding) { liveEl.textContent = ''; return; } // released during the permission prompt
-    }
-    t0 = Date.now(); chunks = []; finalTxt = ''; lastInterim = '';
-    liveEl.textContent = 'Listening…';
-    pad.classList.add('rec');
-    try {
-      mr = new MediaRecorder(micStream);
-      mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
-      mr.start();
-    } catch(err) { mr = null; }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SR) {
-      rec = new SR();
-      rec.lang = getLang(); rec.continuous = true; rec.interimResults = true;
-      rec.onresult = ev => {
-        let interim = '';
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
-          const r = ev.results[i];
-          if (r.isFinal) finalTxt += r[0].transcript + ' ';
-          else interim += r[0].transcript;
-        }
-        lastInterim = interim;
-        liveEl.textContent = (finalTxt + interim).trim() || 'Listening…';
-      };
-      try { rec.start(); } catch(err) { rec = null; }
-    }
-  });
-  const finish = () => {
-    if (!holding) return;
-    holding = false;
-    pad.classList.remove('rec');
-    const held = Date.now() - t0;
-    const mrLocal = mr, recLocal = rec; mr = null; rec = null;
-    if (recLocal) try { recLocal.stop(); } catch(err) {}
-    const wrap = blob => {
-      liveEl.textContent = '';
-      if (held < 600) { toast('Press and hold to record, release when done.'); return; }
-      onDone({ blob, dur: Math.max(1, Math.round(held/1000)), text: (finalTxt.trim() || lastInterim.trim()) });
+function makeListener(opts){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  let rec = null, active = false, finals = '', interim = '';
+  function spin(){
+    rec = new SR();
+    rec.lang = getLang(); rec.continuous = true; rec.interimResults = true;
+    rec.onresult = ev => {
+      interim = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        if (r.isFinal) finals += r[0].transcript + ' ';
+        else interim += r[0].transcript;
+      }
+      opts.onLive(finals, interim);
     };
-    // small delay so the recognizer can flush its final results
-    if (mrLocal && mrLocal.state !== 'inactive') {
-      mrLocal.onstop = () => setTimeout(() => wrap(chunks.length ? new Blob(chunks, { type: mrLocal.mimeType || 'audio/webm' }) : null), 400);
-      try { mrLocal.stop(); } catch(err) { wrap(null); }
-    } else setTimeout(() => wrap(null), 400);
+    // Chrome ends recognition after a pause in speech — restart until told to stop
+    rec.onend = () => { if (active) { try { spin(); } catch(e) { active = false; } } };
+    rec.onerror = ev => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+        active = false;
+        opts.onError('Microphone blocked — allow it for this site, or type below.');
+      }
+    };
+    rec.start();
+  }
+  return {
+    start(){
+      if (active) return;
+      active = true; finals = ''; interim = '';
+      try { spin(); } catch(e) { active = false; opts.onError('Could not start listening.'); }
+    },
+    stop(){
+      active = false;
+      if (rec) try { rec.stop(); } catch(e) {}
+      // brief delay so the recognizer can flush its final results
+      setTimeout(() => opts.onDone(finals, interim), 350);
+    },
+    active(){ return active; }
   };
-  pad.addEventListener('pointerup', finish);
-  pad.addEventListener('pointercancel', finish);
 }
 function audioChipHtml(elId, removable){
   return `<div class="audiochip"><audio controls id="${elId}"></audio>${removable ? `<button class="rm" id="${elId}-rm">Remove</button>` : ''}</div>`;
@@ -363,7 +346,6 @@ async function fetchMeta(media){
 const view = document.getElementById('view');
 function route(){
   closeMenu();
-  stopMic();
   const h = location.hash || '#/';
   if (h === '#/new') return renderCapture();
   const m = h.match(/^#\/s\/(.+)$/);
@@ -385,7 +367,7 @@ function renderHome(){
       <ol>
         <li>Tap <b>Share</b> (in Spotify choose <b>&ldquo;Share from&rdquo;</b> the current time; in YouTube tick <b>&ldquo;Start at&rdquo;</b>)</li>
         <li>Pick <b>Moments</b> in the share sheet</li>
-        <li><b>Hold the pad to record</b> the line &mdash; it transcribes itself &mdash; save, switch back</li>
+        <li>It's <b>already listening</b>: rewind a few seconds (&#9194;) so the line replays, tap Done, then <b>tap the words</b> you want to keep</li>
       </ol>
       <div style="margin-top:18px">${installBtnHtml()}</div>
     </div>`;
@@ -431,6 +413,15 @@ function renderCapture(existing){
 
   view.innerHTML = `
     <button class="back" id="back">&larr; Back</button>
+    <label class="f">The memorable line</label>
+    <div class="txpanel" id="txPanel"><span class="hint">Transcript appears here</span></div>
+    <div class="row" style="margin-top:10px">
+      <button class="txbtn" id="txBtn" style="flex:2">&#127908; Start listening</button>
+      <button class="ghost" id="txAll" style="display:none">All</button>
+      <button class="langchip" id="langBtn"></button>
+    </div>
+    <div class="hint" id="txHint"></div>
+    <textarea class="f" id="quote" placeholder="The selected words land here &mdash; edit freely, or type" style="margin-top:12px">${esc(st.quote)}</textarea>
     <label class="f">Link (Spotify / YouTube)</label>
     <div class="row">
       <input class="f" id="url" placeholder="https://&hellip;" value="${esc(st.url)}" ${existing ? 'disabled' : ''}>
@@ -441,18 +432,6 @@ function renderCapture(existing){
     <input class="f" id="title" placeholder="Episode or video title" value="${esc(st.title)}">
     <label class="f">Timestamp <span style="text-transform:none;letter-spacing:0">(e.g. 23:45 or 1:02:30)</span></label>
     <input class="f" id="ts" placeholder="0:00" value="${st.t != null ? fmtTime(st.t) : ''}">
-    <label class="f">The memorable line</label>
-    <div class="recpad" id="recPad">
-      <span class="mic">&#127908;</span>
-      <b>Hold to record</b> &mdash; let the moment replay out loud, or say it in your words
-      <span class="live" id="recLive"></span>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <span class="hint" style="margin:0">Transcribes while you hold &middot; the audio is kept too</span>
-      <button class="langchip" id="langBtn"></button>
-    </div>
-    <div id="audioRow"></div>
-    <textarea class="f" id="quote" placeholder="Transcript lands here &mdash; fix a word if needed">${esc(st.quote)}</textarea>
     <label class="f">Drawing <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
     <div class="row">
       <button class="ghost" id="drawBtn">${st.doodle ? 'Edit drawing' : 'Add a small drawing'}</button>
@@ -516,35 +495,94 @@ function renderCapture(existing){
   const langBtn = document.getElementById('langBtn');
   langBtn.textContent = getLang();
   langBtn.onclick = () => { toggleLang(); langBtn.textContent = getLang(); };
-  function renderAudioRow(){
-    const el = document.getElementById('audioRow');
-    if (!st.audio) { el.innerHTML = ''; return; }
-    el.innerHTML = audioChipHtml('capAudio', true);
-    loadAudioInto('capAudio', st.audio.id);
-    document.getElementById('capAudio-rm').onclick = () => { audioDel(st.audio.id); st.audio = null; renderAudioRow(); };
+
+  const txPanel = document.getElementById('txPanel');
+  const txBtn = document.getElementById('txBtn');
+  const txAll = document.getElementById('txAll');
+  const txHint = document.getElementById('txHint');
+  let words = [], selStart = -1, selEnd = -1, anchor = -1;
+
+  function syncQuote(){
+    if (selStart < 0) return;
+    document.getElementById('quote').value = words.slice(selStart, selEnd + 1).join(' ');
   }
-  renderAudioRow();
-  bindRecorder(document.getElementById('recPad'), document.getElementById('recLive'), async res => {
-    if (res.text) {
-      const q = document.getElementById('quote');
-      q.value = (q.value ? q.value.trim() + ' ' : '') + res.text;
+  function renderWords(){
+    txPanel.innerHTML = '';
+    words.forEach((w, i) => {
+      const s = document.createElement('span');
+      s.className = 'txword' + (i >= selStart && i <= selEnd ? ' sel' : '');
+      s.textContent = w;
+      s.onclick = () => {
+        if (anchor < 0) { anchor = i; selStart = selEnd = i; }
+        else { selStart = Math.min(anchor, i); selEnd = Math.max(anchor, i); anchor = -1; }
+        renderWords(); syncQuote();
+      };
+      txPanel.appendChild(s);
+      txPanel.appendChild(document.createTextNode(' '));
+    });
+    txAll.style.display = words.length ? 'block' : 'none';
+  }
+  txAll.onclick = () => { selStart = 0; selEnd = words.length - 1; anchor = -1; renderWords(); syncQuote(); };
+
+  // best guess: the longest sentence is the line worth keeping — the user adjusts by tapping
+  function guessSelection(fullText){
+    const sentences = fullText.split(/(?<=[.!?])\s+/).filter(s => s.trim());
+    if (sentences.length > 1) {
+      const best = sentences.reduce((a, b) => b.split(/\s+/).length > a.split(/\s+/).length ? b : a);
+      const before = fullText.slice(0, fullText.indexOf(best)).trim();
+      selStart = before ? before.split(/\s+/).length : 0;
+      selEnd = Math.min(words.length - 1, selStart + best.trim().split(/\s+/).length - 1);
+    } else { selStart = 0; selEnd = words.length - 1; }
+  }
+
+  const lst = makeListener({
+    onLive: (finals, interim) => {
+      txPanel.innerHTML = '<span class="txlivetext">' + esc((finals + interim).trim()) + '</span> <span class="cursor">&#9612;</span>';
+    },
+    onDone: (finals, interim) => {
+      txPanel.classList.remove('listening');
+      txBtn.classList.remove('stop');
+      txBtn.innerHTML = '&#127908; Listen again';
+      const full = (finals + ' ' + interim).replace(/\s+/g, ' ').trim();
+      words = full ? full.split(' ') : [];
+      if (!words.length) {
+        txPanel.innerHTML = '<span class="hint">Heard nothing &mdash; get closer to the speaker and try again, or type below.</span>';
+        txHint.textContent = '';
+        return;
+      }
+      guessSelection(full);
+      renderWords(); syncQuote();
+      txHint.innerHTML = 'The highlighted part goes into the snippet &mdash; <b>tap the first and last word</b> of the part you want instead.';
+    },
+    onError: msg => {
+      txPanel.classList.remove('listening');
+      txBtn.classList.remove('stop');
+      txBtn.innerHTML = '&#127908; Start listening';
+      txPanel.innerHTML = '<span class="hint">' + esc(msg) + '</span>';
     }
-    if (res.blob) {
-      if (st.audio) audioDel(st.audio.id);
-      const id = uid();
-      await audioPut(id, res.blob);
-      st.audio = { id, dur: res.dur };
-      renderAudioRow();
-    }
-    if (!res.text && !res.blob) toast('Nothing captured — hold a bit longer.');
   });
+
+  function startListening(){
+    if (!lst) { txHint.textContent = 'Speech recognition is not available in this browser — type below.'; return; }
+    words = []; selStart = selEnd = -1; anchor = -1;
+    lst.start();
+    txPanel.classList.add('listening');
+    txPanel.innerHTML = '<span class="hint">Listening&hellip;</span>';
+    txBtn.classList.add('stop');
+    txBtn.innerHTML = '&#9632; Done';
+    txHint.innerHTML = 'Rewind the podcast a few seconds (&#9194; in the notification shade) and let the line replay near the speaker.';
+  }
+  txBtn.onclick = () => { if (lst && lst.active()) lst.stop(); else startListening(); };
+  window.addEventListener('hashchange', () => { if (lst && lst.active()) lst.stop(); }, { once: true });
+  // arrived via the share sheet → start listening immediately, no extra taps
+  if (!existing && pending && lst) setTimeout(startListening, 250);
 
   document.getElementById('save').onclick = () => {
     const quote = document.getElementById('quote').value.trim();
     const title = document.getElementById('title').value.trim();
     const t = parsePos(document.getElementById('ts').value);
     const rawUrl = existing ? existing.url : (extractUrl(document.getElementById('url').value) || '');
-    if (!quote && !st.audio) { toast('Hold the pad to record the line first.'); return; }
+    if (!quote && !st.audio) { toast('Nothing to save yet — capture or type the line first.'); return; }
     if (existing) {
       Object.assign(existing, { quote, title, t, doodle: st.doodle, thumb: st.thumb, audio: st.audio });
       persist(); location.hash = '#/s/' + existing.id; route();
@@ -589,11 +627,10 @@ function renderDetail(sn){
     <h2 class="sect">Thoughts</h2>
     <div id="thoughts">${sn.thoughts.map(th => thoughtHtml(sn, th)).join('') || '<div class="hint">Nothing yet. Add what this made you think.</div>'}</div>
     <label class="f">New thought</label>
-    <div class="recpad" id="thPad" style="padding:14px 16px"><b>Hold to record a thought</b><span class="live" id="thLive"></span></div>
-    <div id="thAudioRow"></div>
-    <textarea class="f" id="thText" placeholder="Transcript lands here &mdash; or type" style="min-height:70px;font-family:var(--sans);font-size:15px;margin-top:10px"></textarea>
+    <textarea class="f" id="thText" placeholder="Speak or type&hellip;" style="min-height:70px;font-family:var(--sans);font-size:15px"></textarea>
     <div class="row" style="margin-top:10px">
-      <input class="f" id="thPos" placeholder="Position in episode (optional, e.g. 34:12)">
+      <button class="txbtn" id="thRec" style="flex:0 0 auto">&#127908; Speak</button>
+      <input class="f" id="thPos" placeholder="Position (e.g. 34:12)">
       <button class="ghost" id="thAdd" style="flex:0 0 auto">Add</button>
     </div>`;
 
@@ -608,34 +645,33 @@ function renderDetail(sn){
   if (sn.audio) loadAudioInto('aud-' + sn.id, sn.audio.id);
   sn.thoughts.forEach(th => { if (th.audio) loadAudioInto('thaud-' + th.id, th.audio.id); });
 
-  let thAudio = null;
-  function renderThAudioRow(){
-    const el = document.getElementById('thAudioRow');
-    if (!thAudio) { el.innerHTML = ''; return; }
-    el.innerHTML = audioChipHtml('thCapAudio', true);
-    loadAudioInto('thCapAudio', thAudio.id);
-    document.getElementById('thCapAudio-rm').onclick = () => { audioDel(thAudio.id); thAudio = null; renderThAudioRow(); };
-  }
-  bindRecorder(document.getElementById('thPad'), document.getElementById('thLive'), async res => {
-    if (res.text) {
-      const q = document.getElementById('thText');
-      q.value = (q.value ? q.value.trim() + ' ' : '') + res.text;
-    }
-    if (res.blob) {
-      if (thAudio) audioDel(thAudio.id);
-      const id = uid();
-      await audioPut(id, res.blob);
-      thAudio = { id, dur: res.dur };
-      renderThAudioRow();
-    }
-    if (!res.text && !res.blob) toast('Nothing captured — hold a bit longer.');
+  const thText = document.getElementById('thText');
+  const thRec = document.getElementById('thRec');
+  let thBase = '';
+  const thLst = makeListener({
+    onLive: (finals, interim) => { thText.value = (thBase + ' ' + finals + interim).trim(); },
+    onDone: (finals, interim) => {
+      thText.value = (thBase + ' ' + finals + interim).trim();
+      thRec.classList.remove('stop');
+      thRec.innerHTML = '&#127908; Speak';
+    },
+    onError: msg => { thRec.classList.remove('stop'); thRec.innerHTML = '&#127908; Speak'; toast(msg); }
   });
+  thRec.onclick = () => {
+    if (!thLst) { toast('Speech recognition not available — type instead.'); return; }
+    if (thLst.active()) { thLst.stop(); return; }
+    thBase = thText.value.trim();
+    thLst.start();
+    thRec.classList.add('stop');
+    thRec.innerHTML = '&#9632; Done';
+  };
 
   document.getElementById('thAdd').onclick = () => {
-    const text = document.getElementById('thText').value.trim();
-    if (!text && !thAudio) { toast('Hold the pad to record a thought first.'); return; }
+    if (thLst && thLst.active()) thLst.stop();
+    const text = thText.value.trim();
+    if (!text) { toast('Speak or write a thought first.'); return; }
     const pos = parsePos(document.getElementById('thPos').value);
-    sn.thoughts.push({ id: uid(), at: new Date().toISOString(), text, pos, audio: thAudio });
+    sn.thoughts.push({ id: uid(), at: new Date().toISOString(), text, pos });
     persist(); renderDetail(sn);
   };
   sn.thoughts.forEach(th => {
