@@ -1,0 +1,24 @@
+{
+  "name": "Moments",
+  "short_name": "Moments",
+  "description": "Keep memorable snippets from podcasts and videos, jump back to the exact second, add thoughts over time.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F7F3EC",
+  "theme_color": "#F7F3EC",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "./index.html",
+    "method": "GET",
+    "params": {
+      "title": "s_title",
+      "text": "s_text",
+      "url": "s_url"
+    }
+  }
+}
