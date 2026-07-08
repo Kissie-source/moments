@@ -187,39 +187,41 @@ function makeListener(opts){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
   let rec = null, active = false, finals = '', interim = '';
-  function spin(){
-    rec = new SR();
-    rec.lang = getLang(); rec.continuous = true; rec.interimResults = true;
-    rec.onresult = ev => {
-      interim = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const r = ev.results[i];
-        if (r.isFinal) finals += r[0].transcript + ' ';
-        else interim += r[0].transcript;
-      }
-      opts.onLive(finals, interim);
-    };
-    // Chrome ends recognition after a pause in speech — restart until told to stop
-    rec.onend = () => { if (active) { try { spin(); } catch(e) { active = false; } } };
-    rec.onerror = ev => {
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
-        active = false;
-        opts.onError('Microphone blocked — allow it for this site, or type below.');
-      }
-    };
-    rec.start();
+  // One session only. Restarting recognition in a loop toggles the mic on and off,
+  // and Android pauses/resumes media playback with every toggle.
+  function finish(){
+    if (!active) return;
+    active = false;
+    // brief delay so the recognizer can flush its final results
+    setTimeout(() => opts.onDone(finals, interim), 250);
   }
   return {
     start(){
       if (active) return;
       active = true; finals = ''; interim = '';
-      try { spin(); } catch(e) { active = false; opts.onError('Could not start listening.'); }
+      rec = new SR();
+      rec.lang = getLang(); rec.continuous = true; rec.interimResults = true;
+      rec.onresult = ev => {
+        interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const r = ev.results[i];
+          if (r.isFinal) finals += r[0].transcript + ' ';
+          else interim += r[0].transcript;
+        }
+        opts.onLive(finals, interim);
+      };
+      rec.onend = finish; // ended by itself (silence) — that's our Done
+      rec.onerror = ev => {
+        if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+          active = false;
+          opts.onError('Microphone blocked — allow it for this site, or type below.');
+        }
+      };
+      try { rec.start(); } catch(e) { active = false; opts.onError('Could not start listening.'); }
     },
     stop(){
-      active = false;
       if (rec) try { rec.stop(); } catch(e) {}
-      // brief delay so the recognizer can flush its final results
-      setTimeout(() => opts.onDone(finals, interim), 350);
+      finish();
     },
     active(){ return active; }
   };
@@ -367,7 +369,7 @@ function renderHome(){
       <ol>
         <li>Tap <b>Share</b> (in Spotify choose <b>&ldquo;Share from&rdquo;</b> the current time; in YouTube tick <b>&ldquo;Start at&rdquo;</b>)</li>
         <li>Pick <b>Moments</b> in the share sheet</li>
-        <li>It's <b>already listening</b>: rewind a few seconds (&#9194;) so the line replays, tap Done, then <b>tap the words</b> you want to keep</li>
+        <li>It's <b>already listening</b> &mdash; say the line, pause briefly, then <b>tap the words</b> you want to keep</li>
       </ol>
       <div style="margin-top:18px">${installBtnHtml()}</div>
     </div>`;
@@ -570,7 +572,7 @@ function renderCapture(existing){
     txPanel.innerHTML = '<span class="hint">Listening&hellip;</span>';
     txBtn.classList.add('stop');
     txBtn.innerHTML = '&#9632; Done';
-    txHint.innerHTML = 'Rewind the podcast a few seconds (&#9194; in the notification shade) and let the line replay near the speaker.';
+    txHint.innerHTML = 'Say the line in your own words &mdash; it stops by itself when you pause. The podcast waits while the mic is on and resumes after.';
   }
   txBtn.onclick = () => { if (lst && lst.active()) lst.stop(); else startListening(); };
   window.addEventListener('hashchange', () => { if (lst && lst.active()) lst.stop(); }, { once: true });

@@ -31,9 +31,9 @@ The share-sheet integration requires the app to be served over HTTPS. Easiest pa
 
 ## Daily use
 
-**Spotify (podcast):** at the memorable moment tap **Share → "Share from …" (current timestamp) → Moments**. The app opens **already listening** — link, title and timestamp pre-filled, transcription running. Rewind the podcast a few seconds (⏪ in the notification shade) so the line replays near the speaker, tap **■ Done**, and the transcript appears as tappable words with the likely line pre-highlighted. Tap the first and last word to choose a different part, then **Save**.
+**Spotify (podcast):** at the memorable moment tap **Share → "Share from …" (current timestamp) → Moments**. The app opens **already listening** — link, title and timestamp pre-filled. Say the line in your own words and pause briefly: listening stops by itself and the transcript appears as tappable words with the likely line pre-highlighted. Tap the first and last word to choose a different part, then **Save**.
 
-- Spotify keeps playing in the background while Moments is open. On **loudspeaker** the podcast transcribes itself; with **headphones**, say the line in your own words instead.
+- Android pauses the podcast while the microphone is on and resumes it after — that's the OS, not the app. Listening is a single short session (no restarts), so playback is interrupted only once.
 - The first use asks for microphone permission once. The chip next to the button toggles transcription language (`de-DE` / `en-US`).
 
 **YouTube:** tap **Share**, tick **"Start at [current time]"**, pick **Moments** — same flow.
