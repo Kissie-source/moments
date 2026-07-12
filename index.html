@@ -87,14 +87,16 @@
   .playbtn{display:flex; align-items:center; justify-content:center; gap:10px; background:var(--accent); color:#fff;
     border:none; border-radius:12px; padding:14px; font-size:16px; width:100%; margin-top:16px; cursor:pointer; font-weight:600; text-decoration:none}
   .actions{display:flex; gap:10px; margin-top:12px}
-  /* discrete detail action bar */
+  /* discrete detail action bar — monochrome SVG icons, same size/stroke/baseline
+     (emoji glyphs render in full color on Android regardless of CSS, and each
+     one has a different natural size — SVG with currentColor fixes both) */
   .dactions{display:flex; align-items:center; gap:2px; margin-top:16px; flex-wrap:wrap}
   .act{background:none; border:none; color:var(--muted); font-size:13px; padding:8px 10px; border-radius:10px;
     cursor:pointer; display:inline-flex; align-items:center; gap:6px; text-decoration:none; line-height:1}
-  .act .ico{font-size:16px; line-height:1}
+  .act .ico{width:18px; height:18px; flex:none; display:block}
+  .act .ico svg{width:100%; height:100%; display:block; stroke:currentColor; fill:none;
+    stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
   .act:hover,.act:active{background:var(--paper); color:var(--ink)}
-  .act.play{color:var(--accent); font-weight:600}
-  .act.danger:hover,.act.danger:active{color:var(--danger)}
   .act.spacer{flex:1; pointer-events:none; padding:0}
   .thought{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-top:10px}
   .thought .when{font-size:12px; color:var(--muted); margin-bottom:4px; display:flex; gap:10px; align-items:center}
@@ -252,6 +254,15 @@ function audioChipHtml(elId, removable){
 function loadAudioInto(elId, audioId){
   audioGet(audioId).then(b => { const el = document.getElementById(elId); if (b && el) el.src = URL.createObjectURL(b); });
 }
+
+/* ---------- monochrome icon set (all currentColor — no emoji, no per-glyph color/size drift) ---------- */
+const ICON = {
+  play: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8V4z" stroke-linejoin="round"/></svg></span>',
+  share: '<span class="ico"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.7l7.4-4.4M8.3 13.3l7.4 4.4"/></svg></span>',
+  draw: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M4 20l.9-4L16 4.9a1.5 1.5 0 012.1 0l1 1a1.5 1.5 0 010 2.1L8 17.1 4 20z"/><path d="M14 6.9L17.1 10"/></svg></span>',
+  edit: '<span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 000-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 00-1.8-1L15 3.5h-6l-.3 2.5a7.7 7.7 0 00-1.8 1l-2.3-.9-2 3.4L4.6 11a7.6 7.6 0 000 2l-2 1.5 2 3.4 2.3-.9c.5.4 1.2.8 1.8 1l.3 2.5h6l.3-2.5a7.7 7.7 0 001.8-1l2.3.9 2-3.4-2-1.5z"/></svg></span>',
+  trash: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0-.8 12.1a1.5 1.5 0 01-1.5 1.4H8.3a1.5 1.5 0 01-1.5-1.4L6 7"/><path d="M10 11v6M14 11v6"/></svg></span>'
+};
 
 /* ---------- helpers ---------- */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -705,12 +716,12 @@ function renderDetail(sn){
         <span>Saved ${fmtDate(sn.createdAt)}</span>
       </div>
       <div class="dactions">
-        ${sn.url ? `<a class="act play" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener"><span class="ico">&#9654;</span>${sn.t != null ? fmtTime(sn.t) : 'Open'}</a>` : ''}
+        ${sn.url ? `<a class="act" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener">${ICON.play}${sn.t != null ? fmtTime(sn.t) : 'Open'}</a>` : ''}
         <span class="act spacer"></span>
-        <button class="act" id="share" title="Share"><span class="ico">&#10138;</span></button>
-        <button class="act" id="draw" title="${sn.doodle ? 'Edit drawing' : 'Add drawing'}"><span class="ico">&#9998;</span></button>
-        <button class="act" id="edit" title="Edit details"><span class="ico">&#9881;</span></button>
-        <button class="act danger" id="del" title="Delete"><span class="ico">&#128465;</span></button>
+        <button class="act" id="share" title="Share">${ICON.share}</button>
+        <button class="act" id="draw" title="${sn.doodle ? 'Edit drawing' : 'Add drawing'}">${ICON.draw}</button>
+        <button class="act" id="edit" title="Edit details">${ICON.edit}</button>
+        <button class="act" id="del" title="Delete">${ICON.trash}</button>
       </div>
     </div>
 
