@@ -467,7 +467,6 @@ function cardHtml(sn){
     ${body}
     <div class="meta">
       <span class="dot ${sn.source}"></span>
-      ${sn.podcast ? `<span class="title">${esc(sn.podcast)}</span>` : ''}
       ${sn.t != null ? `<span class="chip">${fmtTime(sn.t)}</span>` : ''}
       ${sn.audio ? `<span class="chip">&#127908;</span>` : ''}
       ${sn.thoughts.length ? `<span class="thoughtcount">${sn.thoughts.length}&#8202;&#128172;</span>` : ''}
