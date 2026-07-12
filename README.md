@@ -43,6 +43,14 @@ Notes:
 
 **YouTube:** tap **Share**, tick **"Start at [current time]"**, pick **Moments** — same instant-save flow.
 
+**The collection:** the home screen lays your moments out as a masonry wall of cards — two columns on a phone, three on a tablet — sized to their content, with drawings shown large. Short lines read big and punchy; long ones settle down.
+
+**Opening a card:** the quote and drawing are the focus. Actions sit as a discrete row underneath — a quiet **▶ 0:45** to jump back, and small icons to **share (➚)**, **draw (✎)**, **edit details (⚙)**, and **delete (🗑)**.
+
+**Drawing:** tap **✎** on a card to sketch; it saves instantly, no separate step. Drawings appear on the card and in the shared image.
+
+**Sharing:** tap **➚** to render the moment as a clean card image and hand it to Android's share sheet (WhatsApp, Messages, anywhere), with the quote + jump-back link in the caption. On desktop it downloads the image and copies the caption.
+
 **Later:** open a card → **▶ Play from …** reopens Spotify/YouTube at that exact second. Add thoughts anytime by voice (🎤 Speak) or typing, and give a thought a position like `34:12` to get its own jump link.
 
 ## Updating the app

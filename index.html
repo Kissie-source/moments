@@ -36,6 +36,17 @@
     margin-bottom:14px; box-shadow:0 1px 3px rgba(60,50,30,.06); cursor:pointer}
   .card .doodle{width:100%; border-radius:10px; margin-bottom:10px; background:#fff; border:1px solid var(--line)}
   .quote{font-family:var(--serif); font-size:19px; line-height:1.45; margin:0; white-space:pre-wrap}
+
+  /* collection (masonry) */
+  .collection{columns:2; column-gap:12px; margin-top:2px}
+  @media (min-width:540px){ .collection{columns:3; column-gap:14px} }
+  .collection .card{break-inside:avoid; -webkit-column-break-inside:avoid; width:100%; margin:0 0 12px;
+    padding:14px 14px 12px; display:block; transition:transform .12s ease, box-shadow .12s ease}
+  .collection .card:active{transform:scale(.985)}
+  .collection .card.hasdraw{padding-top:12px}
+  .collection .card .quote{font-size:var(--qs,16px); line-height:1.32}
+  .collection .card .doodle{margin-bottom:10px}
+  .collection .card .meta{margin-top:10px; font-size:11.5px; gap:6px}
   .quote::before{content:'\201C'; color:var(--muted); margin-right:2px}
   .quote::after{content:'\201D'; color:var(--muted); margin-left:2px}
   .meta{display:flex; align-items:center; gap:8px; margin-top:12px; font-size:13px; color:var(--muted); flex-wrap:wrap}
@@ -76,6 +87,15 @@
   .playbtn{display:flex; align-items:center; justify-content:center; gap:10px; background:var(--accent); color:#fff;
     border:none; border-radius:12px; padding:14px; font-size:16px; width:100%; margin-top:16px; cursor:pointer; font-weight:600; text-decoration:none}
   .actions{display:flex; gap:10px; margin-top:12px}
+  /* discrete detail action bar */
+  .dactions{display:flex; align-items:center; gap:2px; margin-top:16px; flex-wrap:wrap}
+  .act{background:none; border:none; color:var(--muted); font-size:13px; padding:8px 10px; border-radius:10px;
+    cursor:pointer; display:inline-flex; align-items:center; gap:6px; text-decoration:none; line-height:1}
+  .act .ico{font-size:16px; line-height:1}
+  .act:hover,.act:active{background:var(--paper); color:var(--ink)}
+  .act.play{color:var(--accent); font-weight:600}
+  .act.danger:hover,.act.danger:active{color:var(--danger)}
+  .act.spacer{flex:1; pointer-events:none; padding:0}
   .thought{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-top:10px}
   .thought .when{font-size:12px; color:var(--muted); margin-bottom:4px; display:flex; gap:10px; align-items:center}
   .thought .when a{color:var(--accent); text-decoration:none; font-weight:600}
@@ -414,21 +434,33 @@ function renderHome(){
     .sort((a,b) => b.createdAt.localeCompare(a.createdAt));
   view.innerHTML = `
     <input class="search" id="search" placeholder="Search snippets&hellip;" value="${esc(searchQ)}">
-    ${items.map(cardHtml).join('') || '<div class="empty">No matches.</div>'}`;
+    ${items.length ? `<div class="collection">${items.map(cardHtml).join('')}</div>` : '<div class="empty">No matches.</div>'}`;
   const s = document.getElementById('search');
   s.oninput = () => { searchQ = s.value; renderHome(); document.getElementById('search').focus(); const el = document.getElementById('search'); el.setSelectionRange(el.value.length, el.value.length); };
   items.forEach(sn => { document.getElementById('card-' + sn.id).onclick = () => location.hash = '#/s/' + sn.id; });
 }
+// length-aware type: short lines read large and punchy, long ones settle down
+function quoteSize(len){
+  if (len <= 28) return 21;
+  if (len <= 55) return 18.5;
+  if (len <= 100) return 16;
+  if (len <= 170) return 14;
+  return 12.5;
+}
 function cardHtml(sn){
-  return `<div class="card" id="card-${sn.id}">
+  const q = sn.quote || '';
+  const qs = quoteSize(q.length);
+  const body = q
+    ? `<p class="quote">${esc(q)}</p>`
+    : `<p class="quote" style="font-style:italic;color:var(--muted);font-size:15px">${sn.doodle ? 'Sketch' : (sn.audio ? 'Voice note' : 'Saved moment')}</p>`;
+  return `<div class="card ${sn.doodle ? 'hasdraw' : ''}" id="card-${sn.id}" style="--qs:${qs}px">
     ${sn.doodle ? `<img class="doodle" src="${sn.doodle}" alt="">` : ''}
-    ${sn.quote ? `<p class="quote">${esc(sn.quote)}</p>` : '<p class="quote" style="font-style:italic;color:var(--muted)">Voice note</p>'}
+    ${body}
     <div class="meta">
       <span class="dot ${sn.source}"></span>
-      <span class="title">${esc(sn.title || sn.url)}</span>
       ${sn.t != null ? `<span class="chip">${fmtTime(sn.t)}</span>` : ''}
-      ${sn.audio ? `<span class="chip">&#127908; ${fmtTime(sn.audio.dur)}</span>` : ''}
-      ${sn.thoughts.length ? `<span class="thoughtcount">${sn.thoughts.length} thought${sn.thoughts.length>1?'s':''}</span>` : ''}
+      ${sn.audio ? `<span class="chip">&#127908;</span>` : ''}
+      ${sn.thoughts.length ? `<span class="thoughtcount">${sn.thoughts.length}&#8202;&#128172;</span>` : ''}
     </div>
   </div>`;
 }
@@ -672,10 +704,13 @@ function renderDetail(sn){
       <div class="meta" style="margin-top:6px">
         <span>Saved ${fmtDate(sn.createdAt)}</span>
       </div>
-      ${sn.url ? `<a class="playbtn" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener">&#9654;&#65039; ${sn.t != null ? 'Play from ' + fmtTime(sn.t) : 'Open source'}</a>` : ''}
-      <div class="actions">
-        <button class="ghost" id="edit" style="flex:1">Edit</button>
-        <button class="ghost danger" id="del" style="flex:1">Delete</button>
+      <div class="dactions">
+        ${sn.url ? `<a class="act play" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener"><span class="ico">&#9654;</span>${sn.t != null ? fmtTime(sn.t) : 'Open'}</a>` : ''}
+        <span class="act spacer"></span>
+        <button class="act" id="share" title="Share"><span class="ico">&#10138;</span></button>
+        <button class="act" id="draw" title="${sn.doodle ? 'Edit drawing' : 'Add drawing'}"><span class="ico">&#9998;</span></button>
+        <button class="act" id="edit" title="Edit details"><span class="ico">&#9881;</span></button>
+        <button class="act danger" id="del" title="Delete"><span class="ico">&#128465;</span></button>
       </div>
     </div>
 
@@ -702,6 +737,11 @@ function renderDetail(sn){
     delSnippetAudio(sn);
     db = db.filter(x => x.id !== sn.id); persist(); location.hash = '#/';
   };
+  // drawing straight from the card — persists immediately (no separate Save step)
+  document.getElementById('draw').onclick = () => openDoodle(sn.doodle, data => {
+    sn.doodle = data; persist(); renderDetail(sn);
+  });
+  document.getElementById('share').onclick = () => shareCard(sn);
 
   if (needsLine) {
     const cap = mountLineCapture(document.getElementById('lineCapture'), { autostart: autoListen });
@@ -765,6 +805,107 @@ function thoughtHtml(sn, th){
     ${th.text ? `<p>${esc(th.text)}</p>` : ''}
     ${th.audio ? audioChipHtml('thaud-' + th.id, false) : ''}
   </div>`;
+}
+
+/* ---------- share a snippet as a beautiful card image ---------- */
+function roundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+async function shareCard(sn){
+  const quote = sn.quote || '';
+  const scale = 2, W = 1000, M = 56, P = 48;
+  const x = M + P, contentW = W - 2 * M - 2 * P;
+  const serif = `'Georgia','Times New Roman',serif`;
+  const mc = document.createElement('canvas').getContext('2d');
+
+  // measure drawing
+  let img = null, dW = 0, dH = 0, dX = x;
+  if (sn.doodle) {
+    img = await new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = sn.doodle; });
+    if (img) {
+      dW = contentW; dH = contentW * img.height / img.width;
+      if (dH > 520) { dH = 520; dW = dH * img.width / img.height; dX = x + (contentW - dW) / 2; }
+    }
+  }
+  // measure quote
+  const L = quote.length;
+  const qFont = L <= 40 ? 52 : L <= 80 ? 44 : L <= 140 ? 36 : L <= 220 ? 30 : 26;
+  const lineH = Math.round(qFont * 1.32);
+  function wrap(text, font, maxW){
+    mc.font = font;
+    const out = []; let cur = '';
+    for (const w of text.split(/\s+/)) {
+      const test = cur ? cur + ' ' + w : w;
+      if (mc.measureText(test).width > maxW && cur) { out.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+  const qLines = quote ? wrap('“' + quote + '”', `${qFont}px ${serif}`, contentW) : [];
+  const quoteH = qLines.length * lineH;
+
+  const footerH = 40, gap = 30;
+  let inner = 0;
+  if (dH) inner += dH + gap;
+  if (quoteH) inner += quoteH + gap;
+  inner += footerH;
+  const cardH = inner + 2 * P, H = cardH + 2 * M;
+
+  const cv = document.createElement('canvas');
+  cv.width = W * scale; cv.height = H * scale;
+  const ctx = cv.getContext('2d');
+  ctx.scale(scale, scale); ctx.textBaseline = 'top';
+
+  ctx.fillStyle = '#F7F3EC'; ctx.fillRect(0, 0, W, H);
+  roundRect(ctx, M, M, W - 2 * M, cardH, 28);
+  ctx.fillStyle = '#FFFDF9'; ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = '#E7E0D4'; ctx.stroke();
+
+  let y = M + P;
+  if (dH) {
+    roundRect(ctx, dX, y, dW, dH, 16); ctx.save(); ctx.clip();
+    ctx.fillStyle = '#fff'; ctx.fillRect(dX, y, dW, dH);
+    ctx.drawImage(img, dX, y, dW, dH); ctx.restore();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = '#E7E0D4'; roundRect(ctx, dX, y, dW, dH, 16); ctx.stroke();
+    y += dH + gap;
+  }
+  if (quoteH) {
+    ctx.fillStyle = '#221F1A'; ctx.font = `${qFont}px ${serif}`;
+    for (const ln of qLines) { ctx.fillText(ln, x, y); y += lineH; }
+    y += gap;
+  }
+  // footer: source dot + label (left), Moments wordmark (right)
+  const srcColor = sn.source === 'youtube' ? '#B33A3A' : sn.source === 'spotify' ? '#3A7D5C' : '#8A8378';
+  ctx.beginPath(); ctx.arc(x + 7, y + 11, 7, 0, Math.PI * 2); ctx.fillStyle = srcColor; ctx.fill();
+  ctx.fillStyle = '#8A8378'; ctx.font = `22px system-ui,-apple-system,sans-serif`;
+  const label = (sn.source === 'youtube' ? 'YouTube' : sn.source === 'spotify' ? 'Spotify' : 'Link') + (sn.t != null ? '   ·   ' + fmtTime(sn.t) : '');
+  ctx.fillText(label, x + 26, y + 2);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#221F1A'; ctx.font = `600 22px ${serif}`;
+  ctx.fillText('Moments', W - M - P, y + 2);
+  ctx.textAlign = 'left';
+
+  const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+  const file = new File([blob], 'moment.png', { type: 'image/png' });
+  const shareText = (quote ? '“' + quote + '”\n' : '') + (sn.title ? sn.title + '\n' : '') + (sn.url ? jumpUrl(sn) : '');
+
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], text: shareText }); return;
+    }
+    if (navigator.share) { await navigator.share({ text: shareText, url: sn.url || undefined }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  // fallback (desktop / no Web Share): download the image and copy the text
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'moment.png'; a.click();
+  URL.revokeObjectURL(a.href);
+  try { await navigator.clipboard.writeText(shareText); toast('Card image saved, caption copied.'); }
+  catch (e) { toast('Card image saved.'); }
 }
 
 /* ---------- doodle ---------- */
