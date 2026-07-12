@@ -964,28 +964,42 @@ function openDoodle(existing, onDone){
   const cv = ov.querySelector('#doodleCanvas');
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#221F1A';
+  // fine, single-weight continuous line — minimalist line-art style, not a thick marker
+  ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#221F1A';
   let drew = !!existing;
   if (existing) { const img = new Image(); img.onload = () => ctx.drawImage(img,0,0,cv.width,cv.height); img.src = existing; }
   const undoStack = [];
   let drawing = false;
+  let pts = [];
   const pt = e => {
     const r = cv.getBoundingClientRect();
     return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height };
   };
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   cv.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (undoStack.length >= 20) undoStack.shift();
     undoStack.push(ctx.getImageData(0,0,cv.width,cv.height));
     drawing = true; drew = true;
-    const p = pt(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + .1, p.y + .1); ctx.stroke();
+    const p = pt(e); pts = [p];
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + .1, p.y + .1); ctx.stroke();
     cv.setPointerCapture(e.pointerId);
   });
   cv.addEventListener('pointermove', e => {
     if (!drawing) return;
-    const p = pt(e); ctx.lineTo(p.x, p.y); ctx.stroke();
+    pts.push(pt(e));
+    const n = pts.length;
+    if (n < 3) return;
+    // quadratic-through-midpoints smoothing: turns the raw jagged pointer path
+    // into one continuous flowing curve, like a fine-line illustration
+    const p0 = pts[n - 3], p1 = pts[n - 2], p2 = pts[n - 1];
+    const m1 = mid(p0, p1), m2 = mid(p1, p2);
+    ctx.beginPath();
+    ctx.moveTo(m1.x, m1.y);
+    ctx.quadraticCurveTo(p1.x, p1.y, m2.x, m2.y);
+    ctx.stroke();
   });
-  const stop = () => { drawing = false; };
+  const stop = () => { drawing = false; pts = []; };
   cv.addEventListener('pointerup', stop); cv.addEventListener('pointercancel', stop);
   ov.querySelector('#dUndo').onclick = () => { const s = undoStack.pop(); if (s) ctx.putImageData(s,0,0); };
   ov.querySelector('#dClear').onclick = () => { ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cv.width,cv.height); undoStack.length = 0; drew = false; };
