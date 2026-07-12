@@ -358,7 +358,7 @@ async function fetchMeta(media){
       clearTimeout(timer);
       if (!r.ok) continue;
       const j = await r.json();
-      if (j && j.title) return { title: j.title, thumb: j.thumbnail_url || null };
+      if (j && j.title) return { title: j.title, thumb: j.thumbnail_url || null, podcast: j.author_name || null };
     } catch(e) { /* try next */ }
   }
   return null;
@@ -388,21 +388,19 @@ function consumePendingShare(){
     url, source: media ? media.source : 'other',
     mediaId: media && media.id || null, mediaKind: media && media.kind || null,
     title: (pending.title && !extractUrl(pending.title)) ? pending.title : '',
-    thumb: null, t: media ? media.t : null, quote: '', doodle: null, audio: null, thoughts: []
+    podcast: null, thumb: null, t: media ? media.t : null, quote: '', doodle: null, audio: null, thoughts: []
   };
   db.push(sn); persist();
   sessionStorage.setItem('autoListenFor', sn.id);   // card auto-starts listening once
   location.hash = '#/s/' + sn.id;
   toast('Moment saved — keep listening.');
-  if (media) fetchMeta(media).then(meta => {          // fill title/thumbnail in the background
+  if (media) fetchMeta(media).then(meta => {          // fill title/podcast/thumbnail in the background
     if (!meta) return;
     if (!sn.title) sn.title = meta.title;
+    if (!sn.podcast) sn.podcast = meta.podcast;
     sn.thumb = meta.thumb; persist();
-    // update the title in place — a full re-render would wipe an in-progress transcript
-    if (location.hash === '#/s/' + sn.id) {
-      const el = document.querySelector('.card .title');
-      if (el) el.textContent = sn.title || sn.url;
-    }
+    // update in place — a full re-render would wipe an in-progress transcript
+    if (location.hash === '#/s/' + sn.id) updateDetailMetaLine(sn);
   });
   return true;
 }
@@ -441,7 +439,7 @@ function renderHome(){
   }
   const q = searchQ.toLowerCase();
   const items = db
-    .filter(sn => !q || (sn.quote + ' ' + sn.title + ' ' + sn.thoughts.map(t=>t.text).join(' ')).toLowerCase().includes(q))
+    .filter(sn => !q || (sn.quote + ' ' + sn.title + ' ' + (sn.podcast||'') + ' ' + sn.thoughts.map(t=>t.text).join(' ')).toLowerCase().includes(q))
     .sort((a,b) => b.createdAt.localeCompare(a.createdAt));
   view.innerHTML = `
     <input class="search" id="search" placeholder="Search snippets&hellip;" value="${esc(searchQ)}">
@@ -469,6 +467,7 @@ function cardHtml(sn){
     ${body}
     <div class="meta">
       <span class="dot ${sn.source}"></span>
+      ${sn.podcast ? `<span class="title">${esc(sn.podcast)}</span>` : ''}
       ${sn.t != null ? `<span class="chip">${fmtTime(sn.t)}</span>` : ''}
       ${sn.audio ? `<span class="chip">&#127908;</span>` : ''}
       ${sn.thoughts.length ? `<span class="thoughtcount">${sn.thoughts.length}&#8202;&#128172;</span>` : ''}
@@ -589,8 +588,8 @@ function renderCapture(existing){
 
   const st = existing ? {
     url: existing.url, media: { source: existing.source, id: existing.mediaId, kind: existing.mediaKind, url: existing.url, t: existing.t },
-    title: existing.title, thumb: existing.thumb, t: existing.t, quote: existing.quote, doodle: existing.doodle, audio: existing.audio || null
-  } : { url: sharedUrl || '', media: null, title: pending && pending.title && !extractUrl(pending.title) ? pending.title : '', thumb: null, t: null, quote: '', doodle: null, audio: null };
+    title: existing.title, podcast: existing.podcast || '', thumb: existing.thumb, t: existing.t, quote: existing.quote, doodle: existing.doodle, audio: existing.audio || null
+  } : { url: sharedUrl || '', media: null, title: pending && pending.title && !extractUrl(pending.title) ? pending.title : '', podcast: '', thumb: null, t: null, quote: '', doodle: null, audio: null };
 
   view.innerHTML = `
     <button class="back" id="back">&larr; Back</button>
@@ -602,7 +601,9 @@ function renderCapture(existing){
       ${existing ? '' : '<button class="ghost" id="paste" style="flex:0 0 auto">Paste</button>'}
     </div>
     <div id="preview"></div>
-    <label class="f">Title</label>
+    <label class="f">Podcast / Channel</label>
+    <input class="f" id="podcast" placeholder="e.g. The Tim Ferriss Show" value="${esc(st.podcast)}">
+    <label class="f">Episode / Video title</label>
     <input class="f" id="title" placeholder="Episode or video title" value="${esc(st.title)}">
     <label class="f">Timestamp <span style="text-transform:none;letter-spacing:0">(e.g. 23:45 or 1:02:30)</span></label>
     <input class="f" id="ts" placeholder="0:00" value="${st.t != null ? fmtTime(st.t) : ''}">
@@ -629,6 +630,10 @@ function renderCapture(existing){
     if (meta) {
       st.title = meta.title; st.thumb = meta.thumb;
       document.getElementById('title').value = meta.title;
+      if (meta.podcast && !document.getElementById('podcast').value) {
+        st.podcast = meta.podcast;
+        document.getElementById('podcast').value = meta.podcast;
+      }
     }
     renderPreview();
   }
@@ -671,11 +676,12 @@ function renderCapture(existing){
   function doSave(){
     const quote = cap.getQuote();
     const title = document.getElementById('title').value.trim();
+    const podcast = document.getElementById('podcast').value.trim();
     const t = parsePos(document.getElementById('ts').value);
     const rawUrl = existing ? existing.url : (extractUrl(document.getElementById('url').value) || '');
     if (!quote && !st.audio) { toast('Nothing to save yet — capture or type the line first.'); return; }
     if (existing) {
-      Object.assign(existing, { quote, title, t, doodle: st.doodle, thumb: st.thumb, audio: st.audio });
+      Object.assign(existing, { quote, title, podcast, t, doodle: st.doodle, thumb: st.thumb, audio: st.audio });
       persist(); location.hash = '#/s/' + existing.id; route();
       return;
     }
@@ -684,7 +690,7 @@ function renderCapture(existing){
       id: uid(), createdAt: new Date().toISOString(),
       url: rawUrl, source: media ? media.source : 'other',
       mediaId: media && media.id || null, mediaKind: media && media.kind || null,
-      title, thumb: st.thumb, t, quote, doodle: st.doodle, audio: st.audio, thoughts: []
+      title, podcast, thumb: st.thumb, t, quote, doodle: st.doodle, audio: st.audio, thoughts: []
     };
     db.push(sn); persist();
     location.hash = '#/s/' + sn.id;
@@ -693,6 +699,19 @@ function renderCapture(existing){
   document.getElementById('save').onclick = () => {
     if (cap.isActive()) { cap.stop(); setTimeout(doSave, 500); } else doSave();
   };
+}
+
+// updates the podcast/episode line on an already-rendered detail card without a
+// full re-render, so it doesn't wipe an in-progress transcript
+function updateDetailMetaLine(sn){
+  const podEl = document.getElementById('dPodcast');
+  if (podEl) podEl.textContent = sn.podcast || sn.title || sn.url;
+  const epRow = document.getElementById('dEpisodeRow');
+  const epEl = document.getElementById('dEpisode');
+  if (epRow && epEl) {
+    if (sn.podcast && sn.title) { epEl.textContent = sn.title; epRow.style.display = 'flex'; }
+    else epRow.style.display = 'none';
+  }
 }
 
 /* ---------- detail ---------- */
@@ -710,7 +729,10 @@ function renderDetail(sn){
       ${sn.audio ? audioChipHtml('aud-' + sn.id, false) : ''}
       <div class="meta">
         <span class="dot ${sn.source}"></span>
-        <span class="title" style="max-width:100%">${esc(sn.title || sn.url)}</span>
+        <span class="title" id="dPodcast" style="max-width:100%">${esc(sn.podcast || sn.title || sn.url)}</span>
+      </div>
+      <div class="meta" id="dEpisodeRow" style="margin-top:2px; display:${(sn.podcast && sn.title) ? 'flex' : 'none'}">
+        <span class="title" id="dEpisode" style="max-width:100%; opacity:.7">${esc(sn.title)}</span>
       </div>
       <div class="meta" style="margin-top:6px">
         <span>Saved ${fmtDate(sn.createdAt)}</span>
@@ -892,19 +914,25 @@ async function shareCard(sn){
     for (const ln of qLines) { ctx.fillText(ln, x, y); y += lineH; }
     y += gap;
   }
-  // footer: source dot + label (left), Moments wordmark (right)
+  // footer: source dot + podcast/channel name (left), Moments wordmark (right)
   const srcColor = sn.source === 'youtube' ? '#B33A3A' : sn.source === 'spotify' ? '#3A7D5C' : '#8A8378';
   ctx.beginPath(); ctx.arc(x + 7, y + 11, 7, 0, Math.PI * 2); ctx.fillStyle = srcColor; ctx.fill();
   ctx.fillStyle = '#8A8378'; ctx.font = `22px system-ui,-apple-system,sans-serif`;
-  const label = (sn.source === 'youtube' ? 'YouTube' : sn.source === 'spotify' ? 'Spotify' : 'Link') + (sn.t != null ? '   ·   ' + fmtTime(sn.t) : '');
-  ctx.fillText(label, x + 26, y + 2);
+  const src = sn.source === 'youtube' ? 'YouTube' : sn.source === 'spotify' ? 'Spotify' : 'Link';
+  const label = (sn.podcast || src) + (sn.t != null ? '   ·   ' + fmtTime(sn.t) : '');
+  mc.font = '22px system-ui,-apple-system,sans-serif';
+  const maxLabelW = contentW - 220;
+  let shownLabel = label;
+  while (mc.measureText(shownLabel).width > maxLabelW && shownLabel.length > 4) shownLabel = shownLabel.slice(0, -2) + '…';
+  ctx.fillText(shownLabel, x + 26, y + 2);
   ctx.textAlign = 'right'; ctx.fillStyle = '#221F1A'; ctx.font = `600 22px ${serif}`;
   ctx.fillText('Moments', W - M - P, y + 2);
   ctx.textAlign = 'left';
 
   const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
   const file = new File([blob], 'moment.png', { type: 'image/png' });
-  const shareText = (quote ? '“' + quote + '”\n' : '') + (sn.title ? sn.title + '\n' : '') + (sn.url ? jumpUrl(sn) : '');
+  const byline = [sn.podcast, sn.title].filter(Boolean).join(' — ');
+  const shareText = (quote ? '“' + quote + '”\n' : '') + (byline ? byline + '\n' : '') + (sn.url ? jumpUrl(sn) : '');
 
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {

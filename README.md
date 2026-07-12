@@ -43,6 +43,8 @@ Notes:
 
 **YouTube:** tap **Share**, tick **"Start at [current time]"**, pick **Moments** — same instant-save flow.
 
+**Podcast / channel name:** captured automatically when possible (YouTube gives the channel name for free; Spotify episode links often don't expose the show name, so add it once by hand in **Edit details ⚙** if it's missing). Shows on the card, as the headline of the detail view (episode title underneath, smaller), in search, and in the caption when you share.
+
 **The collection:** the home screen lays your moments out as a masonry wall of cards — two columns on a phone, three on a tablet — sized to their content, with drawings shown large. Short lines read big and punchy; long ones settle down.
 
 **Opening a card:** the quote and drawing are the focus. Actions sit as a discrete row underneath — a quiet **▶ 0:45** to jump back, and small icons to **share (➚)**, **draw (✎)**, **edit details (⚙)**, and **delete (🗑)**.
