@@ -340,9 +340,41 @@ async function fetchMeta(media){
     sessionStorage.setItem('pendingShare', JSON.stringify({
       title: qs.get('s_title') || '', text: qs.get('s_text') || '', url: qs.get('s_url') || ''
     }));
-    history.replaceState(null, '', location.pathname + '#/new');
+    history.replaceState(null, '', location.pathname);
   }
 })();
+
+// Shared from Spotify/YouTube → save the moment instantly (no mic, no typing), then
+// land on its card where the line can be added later. Keeps the podcast playing.
+function consumePendingShare(){
+  const pending = JSON.parse(sessionStorage.getItem('pendingShare') || 'null');
+  if (!pending) return false;
+  sessionStorage.removeItem('pendingShare');
+  const url = extractUrl(pending.url) || extractUrl(pending.text) || extractUrl(pending.title) || '';
+  const media = url ? parseMedia(url) : null;
+  const sn = {
+    id: uid(), createdAt: new Date().toISOString(),
+    url, source: media ? media.source : 'other',
+    mediaId: media && media.id || null, mediaKind: media && media.kind || null,
+    title: (pending.title && !extractUrl(pending.title)) ? pending.title : '',
+    thumb: null, t: media ? media.t : null, quote: '', doodle: null, audio: null, thoughts: []
+  };
+  db.push(sn); persist();
+  sessionStorage.setItem('autoListenFor', sn.id);   // card auto-starts listening once
+  location.hash = '#/s/' + sn.id;
+  toast('Moment saved — keep listening.');
+  if (media) fetchMeta(media).then(meta => {          // fill title/thumbnail in the background
+    if (!meta) return;
+    if (!sn.title) sn.title = meta.title;
+    sn.thumb = meta.thumb; persist();
+    // update the title in place — a full re-render would wipe an in-progress transcript
+    if (location.hash === '#/s/' + sn.id) {
+      const el = document.querySelector('.card .title');
+      if (el) el.textContent = sn.title || sn.url;
+    }
+  });
+  return true;
+}
 
 /* ---------- routing ---------- */
 const view = document.getElementById('view');
@@ -368,8 +400,8 @@ function renderHome(){
       While listening in Spotify or YouTube:
       <ol>
         <li>Tap <b>Share</b> (in Spotify choose <b>&ldquo;Share from&rdquo;</b> the current time; in YouTube tick <b>&ldquo;Start at&rdquo;</b>)</li>
-        <li>Pick <b>Moments</b> in the share sheet</li>
-        <li>It's <b>already listening</b> &mdash; say the line, pause briefly, then <b>tap the words</b> you want to keep</li>
+        <li>Pick <b>Moments</b> &mdash; the moment is <b>saved instantly</b>, your podcast keeps playing</li>
+        <li>Add the line whenever you like: <b>speak it</b> and tap the words, or type &mdash; or just leave it and jump back later</li>
       </ol>
       <div style="margin-top:18px">${installBtnHtml()}</div>
     </div>`;
@@ -401,7 +433,111 @@ function cardHtml(sn){
   </div>`;
 }
 
-/* ---------- capture ---------- */
+/* ---------- reusable line-capture widget (voice → tappable words → quote) ---------- */
+function mountLineCapture(root, opts){
+  opts = opts || {};
+  root.innerHTML = `
+    <div class="txpanel" data-tx="panel"><span class="hint">Transcript appears here</span></div>
+    <div class="row" style="margin-top:10px">
+      <button class="txbtn" data-tx="btn" style="flex:2">&#127908; Start listening</button>
+      <button class="ghost" data-tx="all" style="display:none">All</button>
+      <button class="langchip" data-tx="lang"></button>
+    </div>
+    <div class="hint" data-tx="hint"></div>
+    <textarea class="f" data-tx="quote" placeholder="The words land here &mdash; edit freely, or just type" style="margin-top:12px">${esc(opts.initialQuote || '')}</textarea>`;
+  const panel = root.querySelector('[data-tx=panel]');
+  const btn = root.querySelector('[data-tx=btn]');
+  const allBtn = root.querySelector('[data-tx=all]');
+  const langBtn = root.querySelector('[data-tx=lang]');
+  const hint = root.querySelector('[data-tx=hint]');
+  const quoteEl = root.querySelector('[data-tx=quote]');
+
+  langBtn.textContent = getLang();
+  langBtn.onclick = () => { toggleLang(); langBtn.textContent = getLang(); };
+
+  let words = [], selStart = -1, selEnd = -1, anchor = -1;
+  function syncQuote(){
+    if (selStart < 0) return;
+    quoteEl.value = words.slice(selStart, selEnd + 1).join(' ');
+  }
+  function renderWords(){
+    panel.innerHTML = '';
+    words.forEach((w, i) => {
+      const s = document.createElement('span');
+      s.className = 'txword' + (i >= selStart && i <= selEnd ? ' sel' : '');
+      s.textContent = w;
+      s.onclick = () => {
+        if (anchor < 0) { anchor = i; selStart = selEnd = i; }
+        else { selStart = Math.min(anchor, i); selEnd = Math.max(anchor, i); anchor = -1; }
+        renderWords(); syncQuote();
+      };
+      panel.appendChild(s);
+      panel.appendChild(document.createTextNode(' '));
+    });
+    allBtn.style.display = words.length ? 'block' : 'none';
+  }
+  allBtn.onclick = () => { selStart = 0; selEnd = words.length - 1; anchor = -1; renderWords(); syncQuote(); };
+
+  // best guess: the longest sentence is the line worth keeping — the user adjusts by tapping
+  function guessSelection(fullText){
+    const sentences = fullText.split(/(?<=[.!?])\s+/).filter(s => s.trim());
+    if (sentences.length > 1) {
+      const best = sentences.reduce((a, b) => b.split(/\s+/).length > a.split(/\s+/).length ? b : a);
+      const before = fullText.slice(0, fullText.indexOf(best)).trim();
+      selStart = before ? before.split(/\s+/).length : 0;
+      selEnd = Math.min(words.length - 1, selStart + best.trim().split(/\s+/).length - 1);
+    } else { selStart = 0; selEnd = words.length - 1; }
+  }
+
+  const lst = makeListener({
+    onLive: (finals, interim) => {
+      panel.innerHTML = '<span class="txlivetext">' + esc((finals + interim).trim()) + '</span> <span class="cursor">&#9612;</span>';
+    },
+    onDone: (finals, interim) => {
+      panel.classList.remove('listening');
+      btn.classList.remove('stop');
+      btn.innerHTML = '&#127908; Listen again';
+      const full = (finals + ' ' + interim).replace(/\s+/g, ' ').trim();
+      words = full ? full.split(' ') : [];
+      if (!words.length) {
+        panel.innerHTML = '<span class="hint">Heard nothing &mdash; get closer to the speaker and try again, or type below.</span>';
+        hint.textContent = '';
+        return;
+      }
+      guessSelection(full);
+      renderWords(); syncQuote();
+      hint.innerHTML = 'The highlighted part becomes the line &mdash; <b>tap the first and last word</b> of the part you want instead.';
+    },
+    onError: msg => {
+      panel.classList.remove('listening');
+      btn.classList.remove('stop');
+      btn.innerHTML = '&#127908; Start listening';
+      panel.innerHTML = '<span class="hint">' + esc(msg) + '</span>';
+    }
+  });
+
+  function startListening(){
+    if (!lst) { hint.textContent = 'Speech recognition is not available in this browser — type below.'; return; }
+    words = []; selStart = selEnd = -1; anchor = -1;
+    lst.start();
+    panel.classList.add('listening');
+    panel.innerHTML = '<span class="hint">Listening&hellip;</span>';
+    btn.classList.add('stop');
+    btn.innerHTML = '&#9632; Done';
+    hint.innerHTML = 'Say the line in your own words &mdash; it stops by itself when you pause.';
+  }
+  btn.onclick = () => { if (lst && lst.active()) lst.stop(); else startListening(); };
+  window.addEventListener('hashchange', () => { if (lst && lst.active()) lst.stop(); }, { once: true });
+  if (opts.autostart && lst) setTimeout(startListening, 300);
+
+  return {
+    getQuote: () => quoteEl.value.trim(),
+    isActive: () => !!(lst && lst.active()),
+    stop: () => { if (lst && lst.active()) lst.stop(); }
+  };
+}
+
+/* ---------- capture (manual new / edit) ---------- */
 function renderCapture(existing){
   document.getElementById('fab').style.display = 'none';
   const pending = JSON.parse(sessionStorage.getItem('pendingShare') || 'null');
@@ -416,14 +552,7 @@ function renderCapture(existing){
   view.innerHTML = `
     <button class="back" id="back">&larr; Back</button>
     <label class="f">The memorable line</label>
-    <div class="txpanel" id="txPanel"><span class="hint">Transcript appears here</span></div>
-    <div class="row" style="margin-top:10px">
-      <button class="txbtn" id="txBtn" style="flex:2">&#127908; Start listening</button>
-      <button class="ghost" id="txAll" style="display:none">All</button>
-      <button class="langchip" id="langBtn"></button>
-    </div>
-    <div class="hint" id="txHint"></div>
-    <textarea class="f" id="quote" placeholder="The selected words land here &mdash; edit freely, or type" style="margin-top:12px">${esc(st.quote)}</textarea>
+    <div id="lineCapture"></div>
     <label class="f">Link (Spotify / YouTube)</label>
     <div class="row">
       <input class="f" id="url" placeholder="https://&hellip;" value="${esc(st.url)}" ${existing ? 'disabled' : ''}>
@@ -494,93 +623,10 @@ function renderCapture(existing){
     document.getElementById('drawBtn').textContent = 'Add a small drawing';
   };
 
-  const langBtn = document.getElementById('langBtn');
-  langBtn.textContent = getLang();
-  langBtn.onclick = () => { toggleLang(); langBtn.textContent = getLang(); };
+  const cap = mountLineCapture(document.getElementById('lineCapture'), { initialQuote: st.quote });
 
-  const txPanel = document.getElementById('txPanel');
-  const txBtn = document.getElementById('txBtn');
-  const txAll = document.getElementById('txAll');
-  const txHint = document.getElementById('txHint');
-  let words = [], selStart = -1, selEnd = -1, anchor = -1;
-
-  function syncQuote(){
-    if (selStart < 0) return;
-    document.getElementById('quote').value = words.slice(selStart, selEnd + 1).join(' ');
-  }
-  function renderWords(){
-    txPanel.innerHTML = '';
-    words.forEach((w, i) => {
-      const s = document.createElement('span');
-      s.className = 'txword' + (i >= selStart && i <= selEnd ? ' sel' : '');
-      s.textContent = w;
-      s.onclick = () => {
-        if (anchor < 0) { anchor = i; selStart = selEnd = i; }
-        else { selStart = Math.min(anchor, i); selEnd = Math.max(anchor, i); anchor = -1; }
-        renderWords(); syncQuote();
-      };
-      txPanel.appendChild(s);
-      txPanel.appendChild(document.createTextNode(' '));
-    });
-    txAll.style.display = words.length ? 'block' : 'none';
-  }
-  txAll.onclick = () => { selStart = 0; selEnd = words.length - 1; anchor = -1; renderWords(); syncQuote(); };
-
-  // best guess: the longest sentence is the line worth keeping — the user adjusts by tapping
-  function guessSelection(fullText){
-    const sentences = fullText.split(/(?<=[.!?])\s+/).filter(s => s.trim());
-    if (sentences.length > 1) {
-      const best = sentences.reduce((a, b) => b.split(/\s+/).length > a.split(/\s+/).length ? b : a);
-      const before = fullText.slice(0, fullText.indexOf(best)).trim();
-      selStart = before ? before.split(/\s+/).length : 0;
-      selEnd = Math.min(words.length - 1, selStart + best.trim().split(/\s+/).length - 1);
-    } else { selStart = 0; selEnd = words.length - 1; }
-  }
-
-  const lst = makeListener({
-    onLive: (finals, interim) => {
-      txPanel.innerHTML = '<span class="txlivetext">' + esc((finals + interim).trim()) + '</span> <span class="cursor">&#9612;</span>';
-    },
-    onDone: (finals, interim) => {
-      txPanel.classList.remove('listening');
-      txBtn.classList.remove('stop');
-      txBtn.innerHTML = '&#127908; Listen again';
-      const full = (finals + ' ' + interim).replace(/\s+/g, ' ').trim();
-      words = full ? full.split(' ') : [];
-      if (!words.length) {
-        txPanel.innerHTML = '<span class="hint">Heard nothing &mdash; get closer to the speaker and try again, or type below.</span>';
-        txHint.textContent = '';
-        return;
-      }
-      guessSelection(full);
-      renderWords(); syncQuote();
-      txHint.innerHTML = 'The highlighted part goes into the snippet &mdash; <b>tap the first and last word</b> of the part you want instead.';
-    },
-    onError: msg => {
-      txPanel.classList.remove('listening');
-      txBtn.classList.remove('stop');
-      txBtn.innerHTML = '&#127908; Start listening';
-      txPanel.innerHTML = '<span class="hint">' + esc(msg) + '</span>';
-    }
-  });
-
-  function startListening(){
-    if (!lst) { txHint.textContent = 'Speech recognition is not available in this browser — type below.'; return; }
-    words = []; selStart = selEnd = -1; anchor = -1;
-    lst.start();
-    txPanel.classList.add('listening');
-    txPanel.innerHTML = '<span class="hint">Listening&hellip;</span>';
-    txBtn.classList.add('stop');
-    txBtn.innerHTML = '&#9632; Done';
-    txHint.innerHTML = 'Say the line in your own words &mdash; it stops by itself when you pause. The podcast waits while the mic is on and resumes after.';
-  }
-  txBtn.onclick = () => { if (lst && lst.active()) lst.stop(); else startListening(); };
-  window.addEventListener('hashchange', () => { if (lst && lst.active()) lst.stop(); }, { once: true });
-  // arrived via the share sheet → start listening immediately, no extra taps
-  if (!existing && pending && lst) setTimeout(startListening, 250);
-
-  document.getElementById('save').onclick = () => {
-    const quote = document.getElementById('quote').value.trim();
+  function doSave(){
+    const quote = cap.getQuote();
     const title = document.getElementById('title').value.trim();
     const t = parsePos(document.getElementById('ts').value);
     const rawUrl = existing ? existing.url : (extractUrl(document.getElementById('url').value) || '');
@@ -600,17 +646,24 @@ function renderCapture(existing){
     db.push(sn); persist();
     location.hash = '#/s/' + sn.id;
     toast('Saved — back to listening!');
+  }
+  document.getElementById('save').onclick = () => {
+    if (cap.isActive()) { cap.stop(); setTimeout(doSave, 500); } else doSave();
   };
 }
 
 /* ---------- detail ---------- */
 function renderDetail(sn){
   document.getElementById('fab').style.display = 'none';
+  const needsLine = !sn.quote && !sn.audio;
+  const autoListen = sessionStorage.getItem('autoListenFor') === sn.id;
+  if (autoListen) sessionStorage.removeItem('autoListenFor');
   view.innerHTML = `
     <button class="back" id="back">&larr; All snippets</button>
     <div class="card" style="cursor:default">
       ${sn.doodle ? `<img class="doodle" src="${sn.doodle}" alt="">` : ''}
-      ${sn.quote ? `<p class="quote">${esc(sn.quote)}</p>` : ''}
+      ${sn.quote ? `<p class="quote">${esc(sn.quote)}</p>`
+        : (needsLine ? `<p class="quote" style="font-style:italic;color:var(--muted)">Moment saved${sn.t != null ? ' at ' + fmtTime(sn.t) : ''} &mdash; add the line below, or keep it as-is.</p>` : '')}
       ${sn.audio ? audioChipHtml('aud-' + sn.id, false) : ''}
       <div class="meta">
         <span class="dot ${sn.source}"></span>
@@ -625,6 +678,12 @@ function renderDetail(sn){
         <button class="ghost danger" id="del" style="flex:1">Delete</button>
       </div>
     </div>
+
+    ${needsLine ? `
+    <h2 class="sect">The line</h2>
+    <div id="lineCapture"></div>
+    <button class="primary" id="saveLine">Save the line</button>
+    ` : ''}
 
     <h2 class="sect">Thoughts</h2>
     <div id="thoughts">${sn.thoughts.map(th => thoughtHtml(sn, th)).join('') || '<div class="hint">Nothing yet. Add what this made you think.</div>'}</div>
@@ -643,6 +702,18 @@ function renderDetail(sn){
     delSnippetAudio(sn);
     db = db.filter(x => x.id !== sn.id); persist(); location.hash = '#/';
   };
+
+  if (needsLine) {
+    const cap = mountLineCapture(document.getElementById('lineCapture'), { autostart: autoListen });
+    const saveLine = () => {
+      const q = cap.getQuote();
+      if (!q) { toast('Say or type the line first.'); return; }
+      sn.quote = q; persist(); renderDetail(sn);
+    };
+    document.getElementById('saveLine').onclick = () => {
+      if (cap.isActive()) { cap.stop(); setTimeout(saveLine, 500); } else saveLine();
+    };
+  }
 
   if (sn.audio) loadAudioInto('aud-' + sn.id, sn.audio.id);
   sn.thoughts.forEach(th => { if (th.audio) loadAudioInto('thaud-' + th.id, th.audio.id); });
@@ -808,6 +879,7 @@ function bindInstall(){ const b = document.getElementById('installBtn'); if (b) 
 /* ---------- boot ---------- */
 if ('serviceWorker' in navigator && location.protocol === 'https:')
   navigator.serviceWorker.register('./sw.js').catch(()=>{});
+consumePendingShare();
 route();
 </script>
 </body>

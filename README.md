@@ -31,12 +31,17 @@ The share-sheet integration requires the app to be served over HTTPS. Easiest pa
 
 ## Daily use
 
-**Spotify (podcast):** at the memorable moment tap **Share → "Share from …" (current timestamp) → Moments**. The app opens **already listening** — link, title and timestamp pre-filled. Say the line in your own words and pause briefly: listening stops by itself and the transcript appears as tappable words with the likely line pre-highlighted. Tap the first and last word to choose a different part, then **Save**.
+**Spotify (podcast):** at the memorable moment tap **Share → "Share from …" (current timestamp) → Moments**. The moment is **saved instantly** — link, title and timestamp captured, no mic, no typing — so your podcast keeps playing without interruption. You land on the moment's card.
 
-- Android pauses the podcast while the microphone is on and resumes it after — that's the OS, not the app. Listening is a single short session (no restarts), so playback is interrupted only once.
-- The first use asks for microphone permission once. The chip next to the button toggles transcription language (`de-DE` / `en-US`).
+Add the actual line whenever you like, from that card:
+- **Speak it** (the card starts listening, or tap the mic button): say the line in your own words, pause, and it stops by itself. The transcript appears as tappable words with the likely line pre-highlighted — tap the first and last word to pick a different part — then **Save the line**.
+- Or just **type** it. Or leave it wordless and rely on **▶ Play from …** to jump back.
 
-**YouTube:** tap **Share**, tick **"Start at [current time]"**, pick **Moments** — same flow.
+Notes:
+- Speaking opens the mic, and Android pauses the podcast while the mic is on (that's the OS, not the app). Because the moment is already saved, you can add the words *after* you finish listening, so playback is never interrupted mid-flow. Listening is a single short session (no restarts).
+- The mic asks permission once. The chip next to the button toggles transcription language (`de-DE` / `en-US`).
+
+**YouTube:** tap **Share**, tick **"Start at [current time]"**, pick **Moments** — same instant-save flow.
 
 **Later:** open a card → **▶ Play from …** reopens Spotify/YouTube at that exact second. Add thoughts anytime by voice (🎤 Speak) or typing, and give a thought a position like `34:12` to get its own jump link.
 
