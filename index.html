@@ -224,12 +224,18 @@ function makeListener(opts){
       rec = new SR();
       rec.lang = getLang(); rec.continuous = true; rec.interimResults = true;
       rec.onresult = ev => {
-        interim = '';
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        // Rebuild the whole transcript from scratch every event instead of
+        // appending. Android Chrome repeatedly reports resultIndex = 0 and
+        // re-delivers already-final results, so incremental `finals +=` double-
+        // counts them into a growing ladder ("how", "how how is", …). Rebuilding
+        // from results[0] each time is idempotent and immune to that.
+        let f = '', itm = '';
+        for (let i = 0; i < ev.results.length; i++) {
           const r = ev.results[i];
-          if (r.isFinal) finals += r[0].transcript + ' ';
-          else interim += r[0].transcript;
+          if (r.isFinal) f += r[0].transcript + ' ';
+          else itm += r[0].transcript + ' ';
         }
+        finals = f; interim = itm.trim();
         opts.onLive(finals, interim);
       };
       rec.onend = finish; // ended by itself (silence) — that's our Done
