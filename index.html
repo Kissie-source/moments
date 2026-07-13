@@ -108,8 +108,10 @@
   .overlay{position:fixed; inset:0; background:rgba(34,31,26,.55); z-index:20; display:flex; align-items:center; justify-content:center; padding:14px}
   .sheet{background:var(--card); border-radius:18px; padding:16px; width:100%; max-width:560px}
   .sheet h3{margin:0 0 10px; font-family:var(--serif); font-size:18px}
-  #doodleCanvas{width:100%; touch-action:none; border:1px solid var(--line); border-radius:12px; background:#fff; display:block}
-  .sheet .row{margin-top:12px}
+  .doodleWrap{position:relative; overflow:hidden; touch-action:none; border:1px solid var(--line); border-radius:12px; background:#fff}
+  #doodleCanvas{display:block; width:100%; transform-origin:0 0; touch-action:none; will-change:transform}
+  .dhint{margin:8px 2px 0; font-size:12px; color:var(--muted); text-align:center}
+  .sheet .row{margin-top:12px; display:flex; flex-wrap:wrap; gap:8px}
 
   /* live transcript */
   .txpanel{border:1px solid var(--line); border-radius:14px; background:var(--card); padding:14px;
@@ -958,8 +960,10 @@ function openDoodle(existing, onDone){
   ov.className = 'overlay';
   ov.innerHTML = `<div class="sheet">
     <h3>A small drawing</h3>
-    <canvas id="doodleCanvas" width="720" height="450"></canvas>
+    <div class="doodleWrap"><canvas id="doodleCanvas" width="720" height="450"></canvas></div>
+    <p class="dhint">Pinch to zoom in for detail · two fingers to pan · one finger draws</p>
     <div class="row">
+      <button class="ghost" id="dFit">Fit</button>
       <button class="ghost" id="dUndo">Undo</button>
       <button class="ghost" id="dClear">Clear</button>
       <button class="ghost danger" id="dCancel">Cancel</button>
@@ -980,31 +984,70 @@ function openDoodle(existing, onDone){
   const undoStack = [];
   let drawing = false;
   let pts = [], w = BASEW, lastT = 0;
+  // pt() maps a pointer to canvas (backing) coordinates. It reads the live
+  // bounding rect, which already reflects the CSS zoom/pan transform below, so
+  // strokes land exactly under the finger at any zoom level.
   const pt = e => {
     const r = cv.getBoundingClientRect();
     return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height };
   };
   const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+  // ---- zoom & pan: two fingers transform the view, one finger draws ----
+  const wrap = ov.querySelector('.doodleWrap');
+  let z = 1, ox = 0, oy = 0;
+  const applyT = () => { cv.style.transform = `translate(${ox}px,${oy}px) scale(${z})`; };
+  const clampO = () => {
+    const bw = wrap.clientWidth, bh = wrap.clientHeight;
+    ox = Math.min(0, Math.max(bw - bw * z, ox));   // keep the canvas covering the frame
+    oy = Math.min(0, Math.max(bh - bh * z, oy));
+  };
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const localPt = e => { const r = wrap.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  const pointers = new Map();
+  let gesture = null;
+  const stop = () => { drawing = false; pts = []; };
+
   cv.addEventListener('pointerdown', e => {
     e.preventDefault();
+    pointers.set(e.pointerId, localPt(e));
+    if (pointers.size >= 2) {
+      // second finger down → pinch/pan. Undo the just-started stroke so a pinch
+      // that began as an accidental one-finger touch leaves no stray mark.
+      if (drawing) { drawing = false; const s = undoStack.pop(); if (s) ctx.putImageData(s, 0, 0); drew = undoStack.length > 0 || !!existing; }
+      const p = [...pointers.values()];
+      gesture = { d0: dist(p[0], p[1]), m0: mid(p[0], p[1]), z0: z, ox0: ox, oy0: oy };
+      return;
+    }
     if (undoStack.length >= 20) undoStack.shift();
     undoStack.push(ctx.getImageData(0,0,cv.width,cv.height));
     drawing = true; drew = true;
     const p = pt(e); pts = [p];
     w = BASEW; lastT = performance.now();
-    // a round dot so a single tap leaves a mark
+    ctx.fillStyle = '#221F1A';   // Clear leaves fillStyle white; restore ink for the dot
     ctx.beginPath(); ctx.arc(p.x, p.y, w / 2, 0, Math.PI * 2); ctx.fill();
     cv.setPointerCapture(e.pointerId);
   });
   cv.addEventListener('pointermove', e => {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, localPt(e));
+    if (gesture && pointers.size >= 2) {
+      const p = [...pointers.values()];
+      const d = dist(p[0], p[1]), m = mid(p[0], p[1]);
+      z = Math.min(5, Math.max(1, gesture.z0 * d / gesture.d0));
+      // keep the content point under the fingers pinned while zooming/panning
+      ox = m.x - z * (gesture.m0.x - gesture.ox0) / gesture.z0;
+      oy = m.y - z * (gesture.m0.y - gesture.oy0) / gesture.z0;
+      clampO(); applyT();
+      return;
+    }
     if (!drawing) return;
     const p = pt(e), now = performance.now();
     const prev = pts[pts.length - 1];
-    const dist = Math.hypot(p.x - prev.x, p.y - prev.y);
+    const d = Math.hypot(p.x - prev.x, p.y - prev.y);
     const dt = Math.max(1, now - lastT);
     lastT = now;
     // speed → width: slow (speed→0) approaches MAXW, fast (≥SPEED_FAST) hits MINW.
-    const t = Math.min(1, (dist / dt) / SPEED_FAST);
+    const t = Math.min(1, (d / dt) / SPEED_FAST);
     const target = MAXW - (MAXW - MINW) * t;
     w += (target - w) * 0.3;                    // smooth so width doesn't jitter
     pts.push(p);
@@ -1020,10 +1063,16 @@ function openDoodle(existing, onDone){
     ctx.quadraticCurveTo(p1.x, p1.y, m2.x, m2.y);
     ctx.stroke();
   });
-  const stop = () => { drawing = false; pts = []; };
-  cv.addEventListener('pointerup', stop); cv.addEventListener('pointercancel', stop);
+  const release = e => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) gesture = null;   // dropped to ≤1 finger — end the pinch
+    if (pointers.size === 0) stop();
+  };
+  cv.addEventListener('pointerup', release);
+  cv.addEventListener('pointercancel', release);
+  ov.querySelector('#dFit').onclick = () => { z = 1; ox = 0; oy = 0; applyT(); };
   ov.querySelector('#dUndo').onclick = () => { const s = undoStack.pop(); if (s) ctx.putImageData(s,0,0); };
-  ov.querySelector('#dClear').onclick = () => { ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cv.width,cv.height); undoStack.length = 0; drew = false; };
+  ov.querySelector('#dClear').onclick = () => { ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cv.width,cv.height); undoStack.length = 0; drew = false; z = 1; ox = 0; oy = 0; applyT(); };
   ov.querySelector('#dCancel').onclick = () => ov.remove();
   ov.querySelector('#dOk').onclick = () => { onDone(drew ? cv.toDataURL('image/png') : null); ov.remove(); };
 }
