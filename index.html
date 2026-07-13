@@ -970,13 +970,16 @@ function openDoodle(existing, onDone){
   const cv = ov.querySelector('#doodleCanvas');
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,cv.width,cv.height);
-  // fine, single-weight continuous line — minimalist line-art style, not a thick marker
-  ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#221F1A';
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#221F1A'; ctx.fillStyle = '#221F1A';
+  // Brush feel: line width tracks pointer speed — thick when you draw slowly,
+  // thin when you move fast. Widths are in canvas px (canvas is 2× its on-screen
+  // size, so on-screen speed roughly doubles here — SPEED_FAST is tuned for that).
+  const MINW = 1.2, MAXW = 7, BASEW = 3.4, SPEED_FAST = 3.0;
   let drew = !!existing;
   if (existing) { const img = new Image(); img.onload = () => ctx.drawImage(img,0,0,cv.width,cv.height); img.src = existing; }
   const undoStack = [];
   let drawing = false;
-  let pts = [];
+  let pts = [], w = BASEW, lastT = 0;
   const pt = e => {
     const r = cv.getBoundingClientRect();
     return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height };
@@ -988,18 +991,30 @@ function openDoodle(existing, onDone){
     undoStack.push(ctx.getImageData(0,0,cv.width,cv.height));
     drawing = true; drew = true;
     const p = pt(e); pts = [p];
-    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + .1, p.y + .1); ctx.stroke();
+    w = BASEW; lastT = performance.now();
+    // a round dot so a single tap leaves a mark
+    ctx.beginPath(); ctx.arc(p.x, p.y, w / 2, 0, Math.PI * 2); ctx.fill();
     cv.setPointerCapture(e.pointerId);
   });
   cv.addEventListener('pointermove', e => {
     if (!drawing) return;
-    pts.push(pt(e));
+    const p = pt(e), now = performance.now();
+    const prev = pts[pts.length - 1];
+    const dist = Math.hypot(p.x - prev.x, p.y - prev.y);
+    const dt = Math.max(1, now - lastT);
+    lastT = now;
+    // speed → width: slow (speed→0) approaches MAXW, fast (≥SPEED_FAST) hits MINW.
+    const t = Math.min(1, (dist / dt) / SPEED_FAST);
+    const target = MAXW - (MAXW - MINW) * t;
+    w += (target - w) * 0.3;                    // smooth so width doesn't jitter
+    pts.push(p);
     const n = pts.length;
     if (n < 3) return;
-    // quadratic-through-midpoints smoothing: turns the raw jagged pointer path
-    // into one continuous flowing curve, like a fine-line illustration
+    // quadratic-through-midpoints smoothing keeps the path a continuous flowing
+    // curve; setting lineWidth per short segment gives the tapering brush look.
     const p0 = pts[n - 3], p1 = pts[n - 2], p2 = pts[n - 1];
     const m1 = mid(p0, p1), m2 = mid(p1, p2);
+    ctx.lineWidth = w;
     ctx.beginPath();
     ctx.moveTo(m1.x, m1.y);
     ctx.quadraticCurveTo(p1.x, p1.y, m2.x, m2.y);
