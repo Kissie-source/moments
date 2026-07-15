@@ -355,6 +355,18 @@ function parseMedia(url){
 }
 function jumpUrl(sn, posOverride){
   const t = posOverride != null ? posOverride : sn.t;
+  // Prefer the ORIGINAL shared link verbatim when it already targets this exact
+  // second — it's Spotify/YouTube's own timestamped share link (with its share
+  // token), which the app is far more likely to honour as a seek. A rebuilt,
+  // token-stripped link tends to be treated as "just open the episode", so an
+  // in-progress episode resumes at your last position instead of seeking.
+  if (t != null && sn.url) {
+    try {
+      const u = new URL(sn.url);
+      const orig = parseTimeParam(u.searchParams.get('t') || u.searchParams.get('start'));
+      if (orig === t) return sn.url;
+    } catch(e) { /* fall through to rebuild */ }
+  }
   if (sn.source === 'youtube' && sn.mediaId)
     return 'https://youtu.be/' + sn.mediaId + (t != null ? '?t=' + t : '');
   if (sn.source === 'spotify' && sn.mediaId && sn.mediaKind)

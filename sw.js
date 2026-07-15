@@ -1,4 +1,4 @@
-const CACHE = 'moments-v15';
+const CACHE = 'moments-v16';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
