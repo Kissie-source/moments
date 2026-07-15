@@ -55,7 +55,7 @@ Notes:
 
 **Sharing:** tap **➚** to render the moment as a clean card image and hand it to Android's share sheet (WhatsApp, Messages, anywhere), with the quote + jump-back link in the caption. On desktop it downloads the image and copies the caption.
 
-**Later:** open a card → **▶ Play from …** reopens Spotify/YouTube at that exact second. Add thoughts anytime by voice (🎤 Speak) or typing, and give a thought a position like `34:12` to get its own jump link.
+**Later:** open a card → the timestamp (**▶ 34:12**) reopens Spotify/YouTube at that exact second. Add thoughts anytime by voice (🎤 Speak) or typing — each thought is automatically stamped with the shared moment's position and shows a **▶ Relisten** link back to that exact second (no timestamp to type). Thoughts on a moment whose share link carried no position (some Spotify short links) simply have no relisten link.
 
 ## Updating the app
 

@@ -41,15 +41,16 @@
   .collection{columns:2; column-gap:12px; margin-top:2px}
   @media (min-width:540px){ .collection{columns:3; column-gap:14px} }
   .collection .card{break-inside:avoid; -webkit-column-break-inside:avoid; width:100%; margin:0 0 12px;
-    padding:14px 14px 12px; display:block; transition:transform .12s ease, box-shadow .12s ease}
+    padding:14px 14px 12px; display:block; transition:transform .14s ease, box-shadow .18s ease, background-color .18s ease, border-color .18s ease}
   .collection .card:active{transform:scale(.985)}
   .collection .card.hasdraw{padding-top:12px}
-  .collection .card.selected{box-shadow:0 0 0 2px var(--ink) inset}
+  /* selected: a soft, paper-toned lift rather than a hard ring */
+  .collection .card.selected{background:#F1EADB; border-color:#DED3BE; box-shadow:0 6px 18px rgba(60,50,30,.16); transform:translateY(-1px)}
   .selectbar{display:flex; align-items:center; gap:10px; margin:2px 0 14px}
-  .cardCheck{position:absolute; top:8px; right:8px; width:23px; height:23px; border-radius:50%;
-    border:1.5px solid var(--line); background:var(--card); display:flex; align-items:center; justify-content:center;
-    z-index:2; color:var(--card)}
-  .cardCheck.on{background:var(--ink); border-color:var(--ink)}
+  .cardCheck{position:absolute; top:9px; right:9px; width:22px; height:22px; border-radius:50%;
+    border:1.5px solid var(--line); background:rgba(255,253,249,.85); display:flex; align-items:center; justify-content:center;
+    z-index:2; color:#fff; box-shadow:0 1px 3px rgba(60,50,30,.12)}
+  .cardCheck.on{background:var(--accent); border-color:var(--accent)}
   .cardCheck .ico{width:12px; height:12px}
   .collection .card .quote{font-size:var(--qs,16px); line-height:1.32}
   .collection .card .doodle{margin-bottom:10px}
@@ -809,8 +810,7 @@ function renderDetail(sn){
     <textarea class="f" id="thText" placeholder="Speak or type&hellip;" style="min-height:70px;font-family:var(--sans);font-size:15px"></textarea>
     <div class="row" style="margin-top:10px">
       <button class="txbtn" id="thRec" style="flex:0 0 auto">&#127908; Speak</button>
-      <input class="f" id="thPos" placeholder="Position (e.g. 34:12)">
-      <button class="ghost" id="thAdd" style="flex:0 0 auto">Add</button>
+      <button class="ghost" id="thAdd" style="flex:1">Add</button>
     </div>`;
 
   document.getElementById('back').onclick = () => location.hash = '#/';
@@ -861,8 +861,9 @@ function renderDetail(sn){
     if (thLst && thLst.active()) thLst.stop();
     const text = thText.value.trim();
     if (!text) { toast('Speak or write a thought first.'); return; }
-    const pos = parsePos(document.getElementById('thPos').value);
-    sn.thoughts.push({ id: uid(), at: new Date().toISOString(), text, pos });
+    // auto-stamp with the shared moment's position so the thought links straight
+    // back to that exact second — no manual timestamp to type
+    sn.thoughts.push({ id: uid(), at: new Date().toISOString(), text, pos: sn.t });
     persist(); renderDetail(sn);
   };
   sn.thoughts.forEach(th => {
@@ -877,7 +878,7 @@ function thoughtHtml(sn, th){
   return `<div class="thought">
     <div class="when">
       <span>${fmtDate(th.at)}</span>
-      ${th.pos != null && sn.url ? `<a href="${esc(jumpUrl(sn, th.pos))}" target="_blank" rel="noopener">&#9654; at ${fmtTime(th.pos)}</a>` : ''}
+      ${th.pos != null && sn.url ? `<a href="${esc(jumpUrl(sn, th.pos))}" target="_blank" rel="noopener" title="Reopen at this moment">&#9654; Relisten ${fmtTime(th.pos)}</a>` : ''}
       <button class="iconbtn" id="thdel-${th.id}" style="margin-left:auto;font-size:14px;color:var(--muted);padding:0">&#10005;</button>
     </div>
     ${th.text ? `<p>${esc(th.text)}</p>` : ''}
