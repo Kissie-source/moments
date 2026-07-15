@@ -47,9 +47,11 @@ Notes:
 
 **The collection:** the home screen lays your moments out as a masonry wall of cards — two columns on a phone, three on a tablet — sized to their content, with drawings shown large. Short lines read big and punchy; long ones settle down.
 
-**Opening a card:** the quote and drawing are the focus. Actions sit as a discrete row underneath — a quiet **▶ 0:45** to jump back, and small icons to **share (➚)**, **draw (✎)**, **edit details (⚙)**, and **delete (🗑)**.
+**Opening a card:** the quote and drawing are the focus. Actions sit as a discrete row underneath — a quiet **▶ 0:45** to jump back, and small icons to **share (➚)**, **draw (✎)**, and **edit details (⚙)**.
 
-**Drawing:** tap **✎** on a card to sketch; it saves instantly, no separate step. Drawings appear on the card and in the shared image.
+**Drawing:** tap **✎** on a card to sketch; it saves instantly, no separate step. Strokes behave like a brush — thick when you draw slowly, thin when you move fast. Pinch with two fingers to zoom in for detail or writing (one finger still draws; **Fit** resets the view). Drawings appear on the card and in the shared image.
+
+**Deleting:** on the home screen, tap **Select**, tap any cards you want gone (a checkmark appears), then **Delete**. Works for one card or several at once.
 
 **Sharing:** tap **➚** to render the moment as a clean card image and hand it to Android's share sheet (WhatsApp, Messages, anywhere), with the quote + jump-back link in the caption. On desktop it downloads the image and copies the caption.
 

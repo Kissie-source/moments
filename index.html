@@ -32,7 +32,7 @@
     padding:11px 14px; font-size:15px; color:var(--ink); margin:2px 0 14px; outline:none}
   .search::placeholder{color:var(--muted)}
 
-  .card{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px 18px 14px;
+  .card{position:relative; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px 18px 14px;
     margin-bottom:14px; box-shadow:0 1px 3px rgba(60,50,30,.06); cursor:pointer}
   .card .doodle{width:100%; border-radius:10px; margin-bottom:10px; background:#fff; border:1px solid var(--line)}
   .quote{font-family:var(--serif); font-size:19px; line-height:1.45; margin:0; white-space:pre-wrap}
@@ -44,6 +44,13 @@
     padding:14px 14px 12px; display:block; transition:transform .12s ease, box-shadow .12s ease}
   .collection .card:active{transform:scale(.985)}
   .collection .card.hasdraw{padding-top:12px}
+  .collection .card.selected{box-shadow:0 0 0 2px var(--ink) inset}
+  .selectbar{display:flex; align-items:center; gap:10px; margin:2px 0 14px}
+  .cardCheck{position:absolute; top:8px; right:8px; width:23px; height:23px; border-radius:50%;
+    border:1.5px solid var(--line); background:var(--card); display:flex; align-items:center; justify-content:center;
+    z-index:2; color:var(--card)}
+  .cardCheck.on{background:var(--ink); border-color:var(--ink)}
+  .cardCheck .ico{width:12px; height:12px}
   .collection .card .quote{font-size:var(--qs,16px); line-height:1.32}
   .collection .card .doodle{margin-bottom:10px}
   .collection .card .meta{margin-top:10px; font-size:11.5px; gap:6px}
@@ -269,7 +276,7 @@ const ICON = {
   share: '<span class="ico"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.7l7.4-4.4M8.3 13.3l7.4 4.4"/></svg></span>',
   draw: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M4 20l.9-4L16 4.9a1.5 1.5 0 012.1 0l1 1a1.5 1.5 0 010 2.1L8 17.1 4 20z"/><path d="M14 6.9L17.1 10"/></svg></span>',
   edit: '<span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 000-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 00-1.8-1L15 3.5h-6l-.3 2.5a7.7 7.7 0 00-1.8 1l-2.3-.9-2 3.4L4.6 11a7.6 7.6 0 000 2l-2 1.5 2 3.4 2.3-.9c.5.4 1.2.8 1.8 1l.3 2.5h6l.3-2.5a7.7 7.7 0 001.8-1l2.3.9 2-3.4-2-1.5z"/></svg></span>',
-  trash: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0-.8 12.1a1.5 1.5 0 01-1.5 1.4H8.3a1.5 1.5 0 01-1.5-1.4L6 7"/><path d="M10 11v6M14 11v6"/></svg></span>'
+  check: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>'
 };
 
 /* ---------- helpers ---------- */
@@ -428,9 +435,11 @@ document.getElementById('fab').onclick = () => { sessionStorage.removeItem('pend
 
 /* ---------- home ---------- */
 let searchQ = '';
+let selectMode = false;
+let selected = new Set();
 function renderHome(){
   document.getElementById('count').textContent = db.length ? '· ' + db.length : '';
-  document.getElementById('fab').style.display = 'block';
+  document.getElementById('fab').style.display = selectMode ? 'none' : 'block';
   if (!db.length) {
     view.innerHTML = `<div class="empty">
       <div class="big">Keep the lines worth keeping.</div>
@@ -450,11 +459,44 @@ function renderHome(){
     .filter(sn => !q || (sn.quote + ' ' + sn.title + ' ' + (sn.podcast||'') + ' ' + sn.thoughts.map(t=>t.text).join(' ')).toLowerCase().includes(q))
     .sort((a,b) => b.createdAt.localeCompare(a.createdAt));
   view.innerHTML = `
-    <input class="search" id="search" placeholder="Search snippets&hellip;" value="${esc(searchQ)}">
+    ${selectMode
+      ? `<div class="selectbar">
+          <button class="ghost" id="selCancel">Cancel</button>
+          <span style="flex:1; text-align:center; color:var(--muted); font-size:14px">${selected.size} selected</span>
+          <button class="ghost danger" id="selDelete" ${selected.size ? '' : 'disabled'}>Delete</button>
+        </div>`
+      : `<div style="display:flex; gap:8px; align-items:center; margin:2px 0 14px">
+          <input class="search" id="search" style="margin:0; flex:1" placeholder="Search snippets&hellip;" value="${esc(searchQ)}">
+          ${db.length ? `<button class="ghost" id="selectBtn" style="flex:none">Select</button>` : ''}
+        </div>`
+    }
     ${items.length ? `<div class="collection">${items.map(cardHtml).join('')}</div>` : '<div class="empty">No matches.</div>'}`;
-  const s = document.getElementById('search');
-  s.oninput = () => { searchQ = s.value; renderHome(); document.getElementById('search').focus(); const el = document.getElementById('search'); el.setSelectionRange(el.value.length, el.value.length); };
-  items.forEach(sn => { document.getElementById('card-' + sn.id).onclick = () => location.hash = '#/s/' + sn.id; });
+  if (!selectMode) {
+    const s = document.getElementById('search');
+    s.oninput = () => { searchQ = s.value; renderHome(); document.getElementById('search').focus(); const el = document.getElementById('search'); el.setSelectionRange(el.value.length, el.value.length); };
+    document.getElementById('selectBtn').onclick = () => { selectMode = true; selected = new Set(); renderHome(); };
+  } else {
+    document.getElementById('selCancel').onclick = () => { selectMode = false; selected = new Set(); renderHome(); };
+    document.getElementById('selDelete').onclick = () => {
+      if (!selected.size) return;
+      if (!confirm(`Delete ${selected.size} snippet${selected.size > 1 ? 's' : ''}?`)) return;
+      db.filter(sn => selected.has(sn.id)).forEach(delSnippetAudio);
+      db = db.filter(sn => !selected.has(sn.id));
+      persist();
+      selectMode = false; selected = new Set();
+      renderHome();
+    };
+  }
+  items.forEach(sn => {
+    document.getElementById('card-' + sn.id).onclick = () => {
+      if (selectMode) {
+        if (selected.has(sn.id)) selected.delete(sn.id); else selected.add(sn.id);
+        renderHome();
+        return;
+      }
+      location.hash = '#/s/' + sn.id;
+    };
+  });
 }
 // length-aware type: short lines read large and punchy, long ones settle down
 function quoteSize(len){
@@ -470,7 +512,9 @@ function cardHtml(sn){
   const body = q
     ? `<p class="quote">${esc(q)}</p>`
     : `<p class="quote" style="font-style:italic;color:var(--muted);font-size:15px">${sn.doodle ? 'Sketch' : (sn.audio ? 'Voice note' : 'Saved moment')}</p>`;
-  return `<div class="card ${sn.doodle ? 'hasdraw' : ''}" id="card-${sn.id}" style="--qs:${qs}px">
+  const sel = selectMode && selected.has(sn.id);
+  return `<div class="card ${sn.doodle ? 'hasdraw' : ''} ${sel ? 'selected' : ''}" id="card-${sn.id}" style="--qs:${qs}px">
+    ${selectMode ? `<span class="cardCheck ${sel ? 'on' : ''}">${sel ? ICON.check : ''}</span>` : ''}
     ${sn.doodle ? `<img class="doodle" src="${sn.doodle}" alt="">` : ''}
     ${body}
     <div class="meta">
@@ -750,7 +794,6 @@ function renderDetail(sn){
         <button class="act" id="share" title="Share">${ICON.share}</button>
         <button class="act" id="draw" title="${sn.doodle ? 'Edit drawing' : 'Add drawing'}">${ICON.draw}</button>
         <button class="act" id="edit" title="Edit details">${ICON.edit}</button>
-        <button class="act" id="del" title="Delete">${ICON.trash}</button>
       </div>
     </div>
 
@@ -772,11 +815,6 @@ function renderDetail(sn){
 
   document.getElementById('back').onclick = () => location.hash = '#/';
   document.getElementById('edit').onclick = () => renderCapture(sn);
-  document.getElementById('del').onclick = () => {
-    if (!confirm('Delete this snippet and its thoughts?')) return;
-    delSnippetAudio(sn);
-    db = db.filter(x => x.id !== sn.id); persist(); location.hash = '#/';
-  };
   // drawing straight from the card — persists immediately (no separate Save step)
   document.getElementById('draw').onclick = () => openDoodle(sn.doodle, data => {
     sn.doodle = data; persist(); renderDetail(sn);
