@@ -392,6 +392,104 @@ async function fetchMeta(media){
   return null;
 }
 
+/* ---------- Spotify playback control (OAuth PKCE + direct seek) ----------
+   A link can never guarantee a seek: Spotify's app ignores ?t= on an episode
+   that's already in progress and resumes your saved position instead. So when
+   connected we stop *asking* via a URL and *command* playback through the Web
+   API — play(uris:[episode], position_ms) starts that episode at the exact
+   second. Needs Spotify Premium (playback endpoints are Premium-only). */
+const SP_AUTH = 'https://accounts.spotify.com/authorize';
+const SP_TOKEN = 'https://accounts.spotify.com/api/token';
+const SP_SCOPES = 'user-modify-playback-state user-read-playback-state';
+const spRedirect = () => location.origin + location.pathname;
+const spClientId = () => localStorage.getItem('moments.spClientId') || '';
+function spTokens(){ try { return JSON.parse(localStorage.getItem('moments.spTok') || 'null'); } catch(e){ return null; } }
+function spSaveTokens(t){
+  if (!t) { localStorage.removeItem('moments.spTok'); return; }
+  t.expires_at = Date.now() + ((t.expires_in || 3600) * 1000) - 60000;   // refresh a minute early
+  localStorage.setItem('moments.spTok', JSON.stringify(t));
+}
+const spConnected = () => !!(spClientId() && spTokens());
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+async function spBeginAuth(){
+  if (!spClientId()) { toast('Add your Spotify Client ID first.'); return; }
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(64)));
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  sessionStorage.setItem('moments.spVerifier', verifier);
+  location.href = SP_AUTH + '?' + new URLSearchParams({
+    client_id: spClientId(), response_type: 'code', redirect_uri: spRedirect(),
+    code_challenge_method: 'S256', code_challenge: challenge, scope: SP_SCOPES
+  });
+}
+async function spExchange(code){
+  const verifier = sessionStorage.getItem('moments.spVerifier');
+  sessionStorage.removeItem('moments.spVerifier');
+  if (!verifier) return false;
+  try {
+    const r = await fetch(SP_TOKEN, {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri: spRedirect(),
+        client_id: spClientId(), code_verifier: verifier })
+    });
+    if (!r.ok) return false;
+    spSaveTokens(await r.json());
+    return true;
+  } catch(e) { return false; }
+}
+async function spAccessToken(){
+  const t = spTokens();
+  if (!t) return null;
+  if (t.expires_at && Date.now() < t.expires_at) return t.access_token;
+  if (!t.refresh_token) { spSaveTokens(null); return null; }
+  try {
+    const r = await fetch(SP_TOKEN, {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({ grant_type:'refresh_token', refresh_token: t.refresh_token, client_id: spClientId() })
+    });
+    if (!r.ok) { spSaveTokens(null); return null; }
+    const nt = await r.json();
+    if (!nt.refresh_token) nt.refresh_token = t.refresh_token;   // Spotify often omits it on refresh
+    spSaveTokens(nt);
+    return nt.access_token;
+  } catch(e) { return null; }
+}
+// Commands Spotify to play this episode at `seconds`. Returns true if handled
+// (so the caller shouldn't also follow the plain link), false to fall back.
+async function spPlayAt(sn, seconds){
+  if (!spConnected() || sn.source !== 'spotify' || !sn.mediaId || sn.mediaKind !== 'episode') return false;
+  const tok = await spAccessToken();
+  if (!tok) return false;
+  const headers = { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' };
+  const body = JSON.stringify({ uris: ['spotify:episode:' + sn.mediaId], position_ms: Math.max(0, Math.round(seconds * 1000)) });
+  try {
+    let r = await fetch('https://api.spotify.com/v1/me/player/play', { method:'PUT', headers, body });
+    if (r.status === 404) {                       // nothing active — wake the most recent device
+      const dr = await fetch('https://api.spotify.com/v1/me/player/devices', { headers:{ 'Authorization':'Bearer ' + tok } });
+      const dev = dr.ok ? ((await dr.json()).devices || [])[0] : null;
+      if (!dev) return false;                     // no device at all → let the link open the app
+      r = await fetch('https://api.spotify.com/v1/me/player/play?device_id=' + encodeURIComponent(dev.id), { method:'PUT', headers, body });
+    }
+    if (r.status === 401) { spSaveTokens(null); return false; }
+    if (r.status === 403) { toast('Spotify Premium is required to control playback.'); return true; }
+    if (!r.ok) return false;
+    toast('Playing from ' + fmtTime(seconds));
+    return true;
+  } catch(e) { return false; }
+}
+// Intercepts jump links: command a real seek when connected, else follow the link.
+function bindJumps(sn, root){
+  (root || document).querySelectorAll('a.jump').forEach(a => {
+    a.onclick = async e => {
+      const secs = parseFloat(a.dataset.t);
+      if (isNaN(secs) || !spConnected() || sn.source !== 'spotify') return;   // plain link
+      e.preventDefault();
+      if (!(await spPlayAt(sn, secs))) location.href = a.href;
+    };
+  });
+}
+
 /* ---------- share target intake ---------- */
 (function(){
   const qs = new URLSearchParams(location.search);
@@ -399,6 +497,14 @@ async function fetchMeta(media){
     sessionStorage.setItem('pendingShare', JSON.stringify({
       title: qs.get('s_title') || '', text: qs.get('s_text') || '', url: qs.get('s_url') || ''
     }));
+    history.replaceState(null, '', location.pathname);
+  }
+  // Spotify OAuth callback lands back here with ?code=…
+  if (qs.has('code') && sessionStorage.getItem('moments.spVerifier')) {
+    const code = qs.get('code');
+    history.replaceState(null, '', location.pathname);
+    spExchange(code).then(ok => { toast(ok ? 'Spotify connected.' : 'Could not connect Spotify.'); route(); });
+  } else if (qs.has('error') && qs.get('error')) {
     history.replaceState(null, '', location.pathname);
   }
 })();
@@ -802,7 +908,7 @@ function renderDetail(sn){
         <span>Saved ${fmtDate(sn.createdAt)}</span>
       </div>
       <div class="dactions">
-        ${sn.url ? `<a class="act" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener">${ICON.play}${sn.t != null ? fmtTime(sn.t) : 'Open'}</a>` : ''}
+        ${sn.url ? `<a class="act jump" data-t="${sn.t != null ? sn.t : ''}" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener">${ICON.play}${sn.t != null ? fmtTime(sn.t) : 'Open'}</a>` : ''}
         <span class="act spacer"></span>
         <button class="act" id="share" title="Share">${ICON.share}</button>
         <button class="act" id="draw" title="${sn.doodle ? 'Edit drawing' : 'Add drawing'}">${ICON.draw}</button>
@@ -832,6 +938,7 @@ function renderDetail(sn){
     sn.doodle = data; persist(); renderDetail(sn);
   });
   document.getElementById('share').onclick = () => shareCard(sn);
+  bindJumps(sn);   // real Spotify seek when connected, plain link otherwise
 
   if (needsLine) {
     const cap = mountLineCapture(document.getElementById('lineCapture'), { autostart: autoListen });
@@ -890,7 +997,7 @@ function thoughtHtml(sn, th){
   return `<div class="thought">
     <div class="when">
       <span>${fmtDate(th.at)}</span>
-      ${th.pos != null && sn.url ? `<a href="${esc(jumpUrl(sn, th.pos))}" target="_blank" rel="noopener" title="Reopen at this moment">&#9654; Relisten ${fmtTime(th.pos)}</a>` : ''}
+      ${th.pos != null && sn.url ? `<a class="jump" data-t="${th.pos}" href="${esc(jumpUrl(sn, th.pos))}" target="_blank" rel="noopener" title="Reopen at this moment">&#9654; Relisten ${fmtTime(th.pos)}</a>` : ''}
       <button class="iconbtn" id="thdel-${th.id}" style="margin-left:auto;font-size:14px;color:var(--muted);padding:0">&#10005;</button>
     </div>
     ${th.text ? `<p>${esc(th.text)}</p>` : ''}
@@ -1128,6 +1235,43 @@ function openDoodle(existing, onDone){
   ov.querySelector('#dOk').onclick = () => { onDone(drew ? cv.toDataURL('image/png') : null); ov.remove(); };
 }
 
+/* ---------- Spotify connect sheet ---------- */
+function openSpotifySheet(){
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  const connected = spConnected();
+  ov.innerHTML = `<div class="sheet">
+    <h3>Spotify playback</h3>
+    <p class="dhint" style="text-align:left; margin:0 0 6px">
+      Connect Spotify and tapping a timestamp jumps to that exact second. Without it,
+      Spotify reopens the episode wherever you last stopped &mdash; no link can force a
+      seek. Requires <b>Spotify Premium</b>.
+    </p>
+    <label class="f">Spotify Client ID</label>
+    <input class="f" id="spId" placeholder="Paste your Client ID" value="${esc(spClientId())}">
+    <p class="dhint" style="text-align:left">
+      One&#8209;time setup: create a free app at <b>developer.spotify.com/dashboard</b>, add
+      <b>${esc(spRedirect())}</b> as a Redirect URI, then paste its Client ID here.
+    </p>
+    ${connected ? `<p class="dhint" style="text-align:left; color:var(--sp)">&#10003; Connected &mdash; timestamps seek exactly.</p>` : ''}
+    <div class="row">
+      <button class="ghost" id="spClose" style="flex:none">Close</button>
+      ${connected
+        ? `<button class="ghost danger" id="spDisconnect" style="flex:1">Disconnect</button>`
+        : `<button class="ghost" id="spConnect" style="flex:1; background:var(--ink); color:var(--paper); border-color:var(--ink)">Connect Spotify</button>`}
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  const idEl = ov.querySelector('#spId');
+  const saveId = () => localStorage.setItem('moments.spClientId', idEl.value.trim());
+  idEl.oninput = saveId;
+  ov.querySelector('#spClose').onclick = () => ov.remove();
+  const c = ov.querySelector('#spConnect');
+  if (c) c.onclick = () => { saveId(); spBeginAuth(); };
+  const d = ov.querySelector('#spDisconnect');
+  if (d) d.onclick = () => { spSaveTokens(null); ov.remove(); toast('Spotify disconnected.'); };
+}
+
 /* ---------- menu / export / import / install ---------- */
 let menuEl = null;
 function closeMenu(){ if (menuEl) { menuEl.remove(); menuEl = null; } }
@@ -1137,6 +1281,7 @@ document.getElementById('menuBtn').onclick = e => {
   menuEl = document.createElement('div');
   menuEl.className = 'menu';
   menuEl.innerHTML = `
+    <button id="mSpotify">${spConnected() ? 'Spotify: connected' : 'Connect Spotify'}</button>
     <button id="mExport">Export backup (JSON)</button>
     <button id="mImport">Import backup</button>
     ${deferredPrompt ? '<button id="mInstall">Install app</button>' : ''}`;
@@ -1158,6 +1303,7 @@ document.getElementById('menuBtn').onclick = e => {
     a.click(); URL.revokeObjectURL(a.href);
   };
   menuEl.querySelector('#mImport').onclick = () => { document.getElementById('importFile').click(); closeMenu(); };
+  menuEl.querySelector('#mSpotify').onclick = () => { closeMenu(); openSpotifySheet(); };
   const mi = menuEl.querySelector('#mInstall');
   if (mi) mi.onclick = () => { deferredPrompt.prompt(); closeMenu(); };
 };

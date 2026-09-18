@@ -55,7 +55,17 @@ Notes:
 
 **Sharing:** tap **➚** to render the moment as a clean card image and hand it to Android's share sheet (WhatsApp, Messages, anywhere), with the quote + jump-back link in the caption. On desktop it downloads the image and copies the caption.
 
-**Later:** open a card → the timestamp (**▶ 34:12**) reopens Spotify/YouTube at that exact second. Add thoughts anytime by voice (🎤 Speak) or typing — each thought is automatically stamped with the shared moment's position and shows a **▶ Relisten** link back to that exact second (no timestamp to type). Thoughts on a moment whose share link carried no position (some Spotify short links) simply have no relisten link.
+**Jumping back to the exact second (Spotify):** a link alone can't do this. Spotify's app ignores the `?t=` timestamp on an episode that's already in progress and resumes wherever you last stopped — that's the app's behaviour, not something any link can override. To get a real seek, connect Spotify once (**⋮ → Connect Spotify**); the app then *commands* playback through Spotify's Web API instead of asking via a URL, and the timestamp starts the episode at exactly that second (often without even leaving Moments, if Spotify is already active).
+
+One-time setup (needs **Spotify Premium** — the playback endpoints are Premium-only):
+
+1. Go to https://developer.spotify.com/dashboard → **Create app** (any name; it stays private to you).
+2. Add `https://<your-username>.github.io/moments/` as a **Redirect URI** (the exact URI is shown in the app's Connect Spotify sheet — copy it from there). Tick the **Web API** checkbox. Save.
+3. Copy the app's **Client ID**, open **⋮ → Connect Spotify** in Moments, paste it, tap **Connect Spotify**, approve.
+
+If you're not connected, not Premium, or Spotify has no active device, the timestamp falls back to simply opening the episode — the exact time stays visible so you can scrub to it.
+
+**Later:** open a card → the timestamp (**▶ 34:12**) reopens Spotify/YouTube at that exact second (YouTube honours the timestamp directly, no setup needed). Add thoughts anytime by voice (🎤 Speak) or typing — each thought is automatically stamped with the shared moment's position and shows a **▶ Relisten** link back to that exact second (no timestamp to type). Thoughts on a moment whose share link carried no position (some Spotify short links) simply have no relisten link.
 
 ## Updating the app
 
