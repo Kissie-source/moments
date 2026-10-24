@@ -421,7 +421,10 @@ async function fetchMeta(media){
 const SP_AUTH = 'https://accounts.spotify.com/authorize';
 const SP_TOKEN = 'https://accounts.spotify.com/api/token';
 const SP_SCOPES = 'user-modify-playback-state user-read-playback-state';
-const spRedirect = () => location.origin + location.pathname;
+// Always the canonical app URL. start_url is ./index.html, so a home-screen launch
+// sits on /moments/index.html while a browser visit sits on /moments/ — Spotify
+// demands an exact match, so normalise to one registered URI either way.
+const spRedirect = () => (location.origin + location.pathname).replace(/index\.html$/, '');
 const spClientId = () => localStorage.getItem('moments.spClientId') || '';
 function spTokens(){ try { return JSON.parse(localStorage.getItem('moments.spTok') || 'null'); } catch(e){ return null; } }
 function spSaveTokens(t){
