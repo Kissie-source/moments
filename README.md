@@ -34,7 +34,7 @@ The share-sheet integration requires the app to be served over HTTPS. Easiest pa
 **Spotify (podcast):** at the memorable moment tap **Share → "Share from …" (current timestamp) → Moments**. The moment is **saved instantly** — link, title and timestamp captured, no mic, no typing — so your podcast keeps playing without interruption. You land on the moment's card.
 
 Add the actual line whenever you like, from that card:
-- **Speak it** (the card starts listening, or tap the mic button): say the line in your own words, pause, and it stops by itself. The transcript appears as tappable words with the likely line pre-highlighted — tap the first and last word to pick a different part — then **Save the line**.
+- **Speak it** (the card starts listening, or tap **Speak**): say the line in your own words, pause, and it stops by itself. The transcript appears as tappable words with the likely line pre-highlighted — tap the first and last word to pick a different part — then **Save the line**.
 - Or just **type** it. Or leave it wordless and rely on **▶ Play from …** to jump back.
 
 Notes:

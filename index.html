@@ -101,9 +101,11 @@
   .dactions{display:flex; align-items:center; gap:2px; margin-top:16px; flex-wrap:wrap}
   .act{background:none; border:none; color:var(--muted); font-size:13px; padding:8px 10px; border-radius:10px;
     cursor:pointer; display:inline-flex; align-items:center; gap:6px; text-decoration:none; line-height:1}
-  .act .ico{width:18px; height:18px; flex:none; display:block}
-  .act .ico svg{width:100%; height:100%; display:block; stroke:currentColor; fill:none;
+  /* fine-line icon set, usable anywhere (buttons included) */
+  .ico{width:18px; height:18px; flex:none; display:inline-block; vertical-align:-4px}
+  .ico svg{width:100%; height:100%; display:block; stroke:currentColor; fill:none;
     stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+  .act .ico{display:block}
   .act:hover,.act:active{background:var(--paper); color:var(--ink)}
   .act.spacer{flex:1; pointer-events:none; padding:0}
   .thought{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-top:10px}
@@ -293,7 +295,9 @@ const ICON = {
   share: '<span class="ico"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.7l7.4-4.4M8.3 13.3l7.4 4.4"/></svg></span>',
   draw: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M4 20l.9-4L16 4.9a1.5 1.5 0 012.1 0l1 1a1.5 1.5 0 010 2.1L8 17.1 4 20z"/><path d="M14 6.9L17.1 10"/></svg></span>',
   edit: '<span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 000-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 00-1.8-1L15 3.5h-6l-.3 2.5a7.7 7.7 0 00-1.8 1l-2.3-.9-2 3.4L4.6 11a7.6 7.6 0 000 2l-2 1.5 2 3.4 2.3-.9c.5.4 1.2.8 1.8 1l.3 2.5h6l.3-2.5a7.7 7.7 0 001.8-1l2.3.9 2-3.4-2-1.5z"/></svg></span>',
-  check: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>'
+  check: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>',
+  mic: '<span class="ico"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11v1a7 7 0 0014 0v-1"/><path d="M12 19v2"/></svg></span>',
+  stop: '<span class="ico"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></span>'
 };
 
 /* ---------- helpers ---------- */
@@ -667,7 +671,7 @@ function mountLineCapture(root, opts){
   root.innerHTML = `
     <div class="txpanel" data-tx="panel"><span class="hint">Transcript appears here</span></div>
     <div class="row" style="margin-top:10px">
-      <button class="txbtn" data-tx="btn" style="flex:2">&#127908; Start listening</button>
+      <button class="txbtn" data-tx="btn" style="flex:2">${ICON.mic} Speak</button>
       <button class="ghost" data-tx="all" style="display:none">All</button>
       <button class="langchip" data-tx="lang"></button>
     </div>
@@ -728,7 +732,7 @@ function mountLineCapture(root, opts){
     onDone: (finals, interim) => {
       panel.classList.remove('listening');
       btn.classList.remove('stop');
-      btn.innerHTML = '&#127908; Listen again';
+      btn.innerHTML = ICON.mic + ' Speak again';
       const full = (finals + ' ' + interim).replace(/\s+/g, ' ').trim();
       words = full ? full.split(' ') : [];
       if (!words.length) {
@@ -743,7 +747,7 @@ function mountLineCapture(root, opts){
     onError: msg => {
       panel.classList.remove('listening');
       btn.classList.remove('stop');
-      btn.innerHTML = '&#127908; Start listening';
+      btn.innerHTML = ICON.mic + ' Speak';
       panel.innerHTML = '<span class="hint">' + esc(msg) + '</span>';
     }
   });
@@ -755,7 +759,7 @@ function mountLineCapture(root, opts){
     panel.classList.add('listening');
     panel.innerHTML = '<span class="hint">Listening&hellip;</span>';
     btn.classList.add('stop');
-    btn.innerHTML = '&#9632; Done';
+    btn.innerHTML = ICON.stop + ' Done';
     hint.innerHTML = 'Say the line in your own words &mdash; it stops by itself when you pause.';
   }
   btn.onclick = () => { if (lst && lst.active()) lst.stop(); else startListening(); };
@@ -937,6 +941,10 @@ function renderDetail(sn){
         <button class="act" id="draw" title="${sn.doodle ? 'Edit drawing' : 'Add drawing'}">${ICON.draw}</button>
         <button class="act" id="edit" title="Edit details">${ICON.edit}</button>
       </div>
+      ${(sn.source === 'spotify' && sn.t != null && !spConnected()) ? `
+      <button class="act" id="spHint" style="font-size:12px; padding:6px 0; text-align:left">
+        Opens the episode, but Spotify resumes where you left off &mdash; <b>connect Spotify</b> to land on ${fmtTime(sn.t)} exactly.
+      </button>` : ''}
     </div>
 
     ${needsLine ? `
@@ -950,7 +958,6 @@ function renderDetail(sn){
     <label class="f">New thought</label>
     <textarea class="f" id="thText" placeholder="Speak or type&hellip;" style="min-height:70px;font-family:var(--sans);font-size:15px"></textarea>
     <div class="row" style="margin-top:10px">
-      <button class="txbtn" id="thRec" style="flex:0 0 auto">&#127908; Speak</button>
       <button class="ghost" id="thAdd" style="flex:1">Add</button>
     </div>`;
 
@@ -961,6 +968,8 @@ function renderDetail(sn){
     sn.doodle = data; persist(); renderDetail(sn);
   });
   document.getElementById('share').onclick = () => shareCard(sn);
+  const spHint = document.getElementById('spHint');
+  if (spHint) spHint.onclick = () => openSpotifySheet();
   bindJumps(sn);   // real Spotify seek when connected, plain link otherwise
 
   if (needsLine) {
@@ -983,46 +992,49 @@ function renderDetail(sn){
   sn.thoughts.forEach(th => { if (th.audio) loadAudioInto('thaud-' + th.id, th.audio.id); });
 
   const thText = document.getElementById('thText');
-  const thRec = document.getElementById('thRec');
   thText.value = sn.thDraft || '';                                      // restore a half-written thought
   const keepThought = () => { sn.thDraft = thText.value; persistDraft(); };
   thText.addEventListener('input', keepThought);
-  let thBase = '';
-  const thLst = makeListener({
-    onLive: (finals, interim) => { thText.value = (thBase + ' ' + finals + interim).trim(); keepThought(); },
-    onDone: (finals, interim) => {
-      thText.value = (thBase + ' ' + finals + interim).trim();
-      keepThought();
-      thRec.classList.remove('stop');
-      thRec.innerHTML = '&#127908; Speak';
-    },
-    onError: msg => { thRec.classList.remove('stop'); thRec.innerHTML = '&#127908; Speak'; toast(msg); }
-  });
-  thRec.onclick = () => {
-    if (!thLst) { toast('Speech recognition not available — type instead.'); return; }
-    if (thLst.active()) { thLst.stop(); return; }
-    thBase = thText.value.trim();
-    thLst.start();
-    thRec.classList.add('stop');
-    thRec.innerHTML = '&#9632; Done';
-  };
 
   document.getElementById('thAdd').onclick = () => {
-    if (thLst && thLst.active()) thLst.stop();
     const text = thText.value.trim();
-    if (!text) { toast('Speak or write a thought first.'); return; }
+    if (!text) { toast('Write a thought first.'); return; }
     // auto-stamp with the shared moment's position so the thought links straight
     // back to that exact second — no manual timestamp to type
-    sn.thoughts.push({ id: uid(), at: new Date().toISOString(), text, pos: sn.t });
-    delete sn.thDraft; persist(); renderDetail(sn);
+    const th = { id: uid(), at: new Date().toISOString(), text, pos: sn.t };
+    sn.thoughts.push(th);
+    delete sn.thDraft; persist();
+    // Append in place instead of re-rendering the card. A full re-render destroyed
+    // the focused textarea, which closed the phone keyboard and jumped back to the
+    // top — making a third thought feel impossible to add.
+    appendThought(sn, th);
+    thText.value = '';
+    thText.focus();
   };
-  sn.thoughts.forEach(th => {
-    const b = document.getElementById('thdel-' + th.id);
-    if (b) b.onclick = () => {
-      if (th.audio) audioDel(th.audio.id);
-      sn.thoughts = sn.thoughts.filter(x => x.id !== th.id); persist(); renderDetail(sn);
-    };
-  });
+  sn.thoughts.forEach(th => bindThought(sn, th));
+}
+// adds one thought to the already-rendered list, no re-render
+function appendThought(sn, th){
+  const list = document.getElementById('thoughts');
+  if (!list) return;
+  const placeholder = list.querySelector('.hint');
+  if (placeholder) placeholder.remove();
+  list.insertAdjacentHTML('beforeend', thoughtHtml(sn, th));
+  bindThought(sn, th);
+  bindJumps(sn, list);
+}
+function bindThought(sn, th){
+  const b = document.getElementById('thdel-' + th.id);
+  if (!b) return;
+  b.onclick = () => {
+    if (th.audio) audioDel(th.audio.id);
+    sn.thoughts = sn.thoughts.filter(x => x.id !== th.id); persist();
+    const card = b.closest('.thought');
+    if (card) card.remove();                                   // in place, keeps your place on the page
+    const list = document.getElementById('thoughts');
+    if (list && !sn.thoughts.length)
+      list.innerHTML = '<div class="hint">Nothing yet. Add what this made you think.</div>';
+  };
 }
 function thoughtHtml(sn, th){
   return `<div class="thought">
