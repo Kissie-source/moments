@@ -989,7 +989,10 @@ function renderDetail(sn){
         <span class="title" id="dEpisode" style="max-width:100%; opacity:.7">${esc(sn.title)}</span>
       </div>
       <div class="meta" style="margin-top:6px">
-        <span id="dPos">${sn.t != null ? 'At ' + fmtTime(sn.t) : 'No position saved'}</span>
+        ${(sn.t != null && sn.url)
+          ? `<a class="jump" id="dPos" data-t="${sn.t}" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener"
+               style="color:var(--accent); text-decoration:none; font-weight:600">&#9654; At ${fmtTime(sn.t)}</a>`
+          : `<span id="dPos">${sn.t != null ? 'At ' + fmtTime(sn.t) : 'No position saved'}</span>`}
       </div>
       <div class="dactions">
         ${sn.url ? `<a class="act jump" data-t="${sn.t != null ? sn.t : ''}" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener">${ICON.play}${sn.t != null ? fmtTime(sn.t) : 'Open'}</a>` : ''}
