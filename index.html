@@ -62,7 +62,15 @@
   .dot.youtube{background:var(--yt)} .dot.spotify{background:var(--sp)} .dot.other{background:var(--muted)}
   .meta .title{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%}
   .chip{border:1px solid var(--line); border-radius:999px; padding:2px 9px; font-size:12px; color:var(--ink); background:var(--paper); flex:none}
-  .thoughtcount{margin-left:auto; flex:none}
+  .thoughtcount{margin-left:auto; flex:none; background:none; border:none; font:inherit; color:var(--muted);
+    cursor:pointer; display:inline-flex; align-items:center; gap:3px; padding:2px 3px; border-radius:8px}
+  .thoughtcount .ico{width:13px; height:13px; vertical-align:0}
+  .thoughtcount:active{background:var(--paper)}
+  /* thoughts revealed inline on an overview card */
+  .cardThoughts{margin-top:10px; border-top:1px solid var(--line); padding-top:8px; display:grid; gap:9px}
+  .cardThoughts[hidden]{display:none}
+  .cth .when{font-size:10.5px; color:var(--muted); letter-spacing:.2px}
+  .cth p{margin:2px 0 0; font-size:12.5px; line-height:1.45; white-space:pre-wrap}
 
   .empty{ text-align:center; color:var(--muted); padding:48px 20px; line-height:1.7; font-size:15px }
   .empty .big{font-family:var(--serif); font-size:22px; color:var(--ink); margin-bottom:10px}
@@ -297,7 +305,8 @@ const ICON = {
   edit: '<span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 000-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 00-1.8-1L15 3.5h-6l-.3 2.5a7.7 7.7 0 00-1.8 1l-2.3-.9-2 3.4L4.6 11a7.6 7.6 0 000 2l-2 1.5 2 3.4 2.3-.9c.5.4 1.2.8 1.8 1l.3 2.5h6l.3-2.5a7.7 7.7 0 001.8-1l2.3.9 2-3.4-2-1.5z"/></svg></span>',
   check: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>',
   mic: '<span class="ico"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11v1a7 7 0 0014 0v-1"/><path d="M12 19v2"/></svg></span>',
-  stop: '<span class="ico"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></span>'
+  stop: '<span class="ico"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></span>',
+  thought: '<span class="ico"><svg viewBox="0 0 24 24"><path d="M20 12a7.5 7.5 0 01-7.5 7.5c-1.2 0-2.3-.3-3.3-.8L4 20l1.4-4.2A7.5 7.5 0 1120 12z"/></svg></span>'
 };
 
 /* ---------- helpers ---------- */
@@ -480,26 +489,61 @@ async function spAccessToken(){
 }
 // Commands Spotify to play this episode at `seconds`. Returns true if handled
 // (so the caller shouldn't also follow the plain link), false to fall back.
+// Returns true when it handled the tap (success OR an explained failure — in which
+// case we must NOT also open the link, since that lands at the wrong position and
+// hides the reason). Returns false only when this isn't ours to handle.
 async function spPlayAt(sn, seconds){
-  if (!spConnected() || sn.source !== 'spotify' || !sn.mediaId || sn.mediaKind !== 'episode') return false;
+  if (!spConnected() || sn.source !== 'spotify' || !sn.mediaId) return false;
+  if (sn.mediaKind !== 'episode') {
+    toast('Saved link is a ' + (sn.mediaKind || 'plain') + ' link, not an episode — opening Spotify.');
+    return false;
+  }
   const tok = await spAccessToken();
-  if (!tok) return false;
+  if (!tok) { toast('Spotify sign-in expired — reconnect via ⋮ → Connect Spotify.'); return true; }
   const headers = { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' };
+  const PLAY = 'https://api.spotify.com/v1/me/player/play';
   const body = JSON.stringify({ uris: ['spotify:episode:' + sn.mediaId], position_ms: Math.max(0, Math.round(seconds * 1000)) });
   try {
-    let r = await fetch('https://api.spotify.com/v1/me/player/play', { method:'PUT', headers, body });
+    let r = await fetch(PLAY, { method:'PUT', headers, body });
     if (r.status === 404) {                       // nothing active — wake the most recent device
       const dr = await fetch('https://api.spotify.com/v1/me/player/devices', { headers:{ 'Authorization':'Bearer ' + tok } });
-      const dev = dr.ok ? ((await dr.json()).devices || [])[0] : null;
-      if (!dev) return false;                     // no device at all → let the link open the app
-      r = await fetch('https://api.spotify.com/v1/me/player/play?device_id=' + encodeURIComponent(dev.id), { method:'PUT', headers, body });
+      const devs = dr.ok ? ((await dr.json()).devices || []) : [];
+      if (!devs.length) {
+        toast('No Spotify device found. Open Spotify, press play once, then tap the time again.');
+        return true;
+      }
+      r = await fetch(PLAY + '?device_id=' + encodeURIComponent(devs[0].id), { method:'PUT', headers, body });
     }
-    if (r.status === 401) { spSaveTokens(null); return false; }
+    if (r.status === 401) { spSaveTokens(null); toast('Spotify sign-in expired — reconnect via ⋮.'); return true; }
     if (r.status === 403) { toast('Spotify Premium is required to control playback.'); return true; }
-    if (!r.ok) return false;
+    if (!r.ok) {
+      let detail = '';
+      try { const j = await r.json(); detail = (j && j.error && j.error.message) || ''; } catch(e) {}
+      toast('Spotify refused the jump (' + r.status + (detail ? ': ' + detail : '') + ')');
+      return true;
+    }
     toast('Playing from ' + fmtTime(seconds));
     return true;
-  } catch(e) { return false; }
+  } catch(e) { toast('Could not reach Spotify — check your connection.'); return true; }
+}
+// Pulls the real episode + show name from Spotify (oEmbed rarely gives these).
+async function spFillEpisodeMeta(sn){
+  if (!spConnected() || sn.source !== 'spotify' || sn.mediaKind !== 'episode' || !sn.mediaId) return;
+  if (sn.spMeta) return;                           // already fetched once
+  const tok = await spAccessToken();
+  if (!tok) return;
+  try {
+    const r = await fetch('https://api.spotify.com/v1/episodes/' + encodeURIComponent(sn.mediaId),
+      { headers: { 'Authorization': 'Bearer ' + tok } });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j.name) sn.title = j.name;                                   // the chapter/episode name
+    if (j.show && (j.show.name || j.show.publisher))
+      sn.podcast = j.show.name || j.show.publisher;                  // the author/show
+    sn.spMeta = true;
+    persist();
+    if (location.hash === '#/s/' + sn.id) updateDetailMetaLine(sn);
+  } catch(e) { /* leave existing metadata alone */ }
 }
 // Intercepts jump links: command a real seek when connected, else follow the link.
 function bindJumps(sn, root){
@@ -630,6 +674,14 @@ function renderHome(){
     };
   }
   items.forEach(sn => {
+    // the thought bubble reveals the thoughts in place instead of opening the card
+    const bubble = document.querySelector('.thoughtcount[data-th="' + sn.id + '"]');
+    if (bubble) bubble.onclick = e => {
+      if (selectMode) return;                 // in select mode let the tap select the card
+      e.stopPropagation();
+      const list = document.getElementById('cth-' + sn.id);
+      if (list) list.hidden = !list.hidden;
+    };
     document.getElementById('card-' + sn.id).onclick = () => {
       if (selectMode) {
         if (selected.has(sn.id)) selected.delete(sn.id); else selected.add(sn.id);
@@ -663,8 +715,10 @@ function cardHtml(sn){
       <span class="dot ${sn.source}"></span>
       ${sn.t != null ? `<span class="chip">${fmtTime(sn.t)}</span>` : ''}
       ${sn.audio ? `<span class="chip">&#127908;</span>` : ''}
-      ${sn.thoughts.length ? `<span class="thoughtcount">${sn.thoughts.length}&#8202;&#128172;</span>` : ''}
+      ${sn.thoughts.length ? `<button class="thoughtcount" data-th="${sn.id}" title="Show thoughts">${sn.thoughts.length}&#8202;${ICON.thought}</button>` : ''}
     </div>
+    ${sn.thoughts.length ? `<div class="cardThoughts" id="cth-${sn.id}" hidden>${sn.thoughts.map(th => `
+      <div class="cth"><div class="when">${fmtDate(th.at)}</div><p>${esc(th.text)}</p></div>`).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -935,7 +989,7 @@ function renderDetail(sn){
         <span class="title" id="dEpisode" style="max-width:100%; opacity:.7">${esc(sn.title)}</span>
       </div>
       <div class="meta" style="margin-top:6px">
-        <span>Saved ${fmtDate(sn.createdAt)}</span>
+        <span id="dPos">${sn.t != null ? 'At ' + fmtTime(sn.t) : 'No position saved'}</span>
       </div>
       <div class="dactions">
         ${sn.url ? `<a class="act jump" data-t="${sn.t != null ? sn.t : ''}" href="${esc(jumpUrl(sn))}" target="_blank" rel="noopener">${ICON.play}${sn.t != null ? fmtTime(sn.t) : 'Open'}</a>` : ''}
@@ -974,6 +1028,7 @@ function renderDetail(sn){
   const spHint = document.getElementById('spHint');
   if (spHint) spHint.onclick = () => openSpotifySheet();
   bindJumps(sn);   // real Spotify seek when connected, plain link otherwise
+  spFillEpisodeMeta(sn);   // exact episode + show name once Spotify is connected
 
   if (needsLine) {
     const cap = mountLineCapture(document.getElementById('lineCapture'), {
@@ -1299,7 +1354,9 @@ function openSpotifySheet(){
       One&#8209;time setup: create a free app at <b>developer.spotify.com/dashboard</b>, add
       <b>${esc(spRedirect())}</b> as a Redirect URI, then paste its Client ID here.
     </p>
-    ${connected ? `<p class="dhint" style="text-align:left; color:var(--sp)">&#10003; Connected &mdash; timestamps seek exactly.</p>` : ''}
+    ${connected ? `<p class="dhint" style="text-align:left; color:var(--sp)">&#10003; Connected &mdash; timestamps seek exactly.</p>
+    <button class="ghost" id="spTest" style="width:100%">Test connection</button>
+    <p class="dhint" id="spTestOut" style="text-align:left; white-space:pre-line"></p>` : ''}
     <div class="row">
       <button class="ghost" id="spClose" style="flex:none">Close</button>
       ${connected
@@ -1316,6 +1373,27 @@ function openSpotifySheet(){
   if (c) c.onclick = () => { saveId(); spBeginAuth(); };
   const d = ov.querySelector('#spDisconnect');
   if (d) d.onclick = () => { spSaveTokens(null); ov.remove(); toast('Spotify disconnected.'); };
+  const test = ov.querySelector('#spTest');
+  if (test) test.onclick = async () => {
+    const out = ov.querySelector('#spTestOut');
+    out.textContent = 'Checking…';
+    const tok = await spAccessToken();
+    if (!tok) { out.textContent = '✗ Sign-in expired. Tap Disconnect, then Connect Spotify again.'; return; }
+    try {
+      const r = await fetch('https://api.spotify.com/v1/me/player/devices', { headers:{ 'Authorization':'Bearer ' + tok } });
+      if (r.status === 401) { out.textContent = '✗ Token rejected. Disconnect and connect again.'; return; }
+      if (!r.ok) { out.textContent = '✗ Spotify returned ' + r.status + '.'; return; }
+      const devs = (await r.json()).devices || [];
+      if (!devs.length) {
+        out.textContent = '✓ Sign-in works.\n✗ No Spotify device visible.\nOpen Spotify, press play for a second, then test again — a jump needs a device to play on.';
+        return;
+      }
+      const active = devs.find(x => x.is_active);
+      out.textContent = '✓ Sign-in works.\n✓ Devices: ' + devs.map(x => x.name + (x.is_active ? ' (active)' : '')).join(', ')
+        + (active ? '\n✓ Ready — timestamps should jump exactly.'
+                  : '\n! None is active. Press play in Spotify once, then tap a timestamp.');
+    } catch(e) { out.textContent = '✗ Could not reach Spotify — check your connection.'; }
+  };
 }
 
 /* ---------- menu / export / import / install ---------- */
