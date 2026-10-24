@@ -168,6 +168,22 @@ function persist(){
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 
+/* Drafts: half-written lines and thoughts are kept on the snippet so they
+   survive a re-render (drawing, adding a thought), leaving the card, and the
+   app being closed. Debounced — a keystroke shouldn't rewrite the whole store. */
+let draftTimer = null;
+function persistDraft(){
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => { draftTimer = null; persist(); }, 400);
+}
+function flushDraft(){
+  if (!draftTimer) return;
+  clearTimeout(draftTimer); draftTimer = null; persist();
+}
+window.addEventListener('pagehide', flushDraft);
+window.addEventListener('hashchange', flushDraft);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraft(); });
+
 /* ---------- audio storage (IndexedDB — clips are too big for localStorage) ---------- */
 function idb(){
   return new Promise((res, rej) => {
@@ -663,6 +679,9 @@ function mountLineCapture(root, opts){
   const langBtn = root.querySelector('[data-tx=lang]');
   const hint = root.querySelector('[data-tx=hint]');
   const quoteEl = root.querySelector('[data-tx=quote]');
+  // report every change (typed or transcribed) so the caller can keep a draft
+  const notify = () => { if (opts.onInput) opts.onInput(quoteEl.value); };
+  quoteEl.addEventListener('input', notify);
 
   langBtn.textContent = getLang();
   langBtn.onclick = () => { toggleLang(); langBtn.textContent = getLang(); };
@@ -671,6 +690,7 @@ function mountLineCapture(root, opts){
   function syncQuote(){
     if (selStart < 0) return;
     quoteEl.value = words.slice(selStart, selEnd + 1).join(' ');
+    notify();
   }
   function renderWords(){
     panel.innerHTML = '';
@@ -841,7 +861,9 @@ function renderCapture(existing){
     document.getElementById('drawBtn').textContent = 'Add a small drawing';
   };
 
-  const cap = mountLineCapture(document.getElementById('lineCapture'), { initialQuote: st.quote });
+  const cap = mountLineCapture(document.getElementById('lineCapture'), {
+    initialQuote: st.quote || (existing && existing.draft) || ''
+  });
 
   function doSave(){
     const quote = cap.getQuote();
@@ -852,6 +874,7 @@ function renderCapture(existing){
     if (!quote && !st.audio) { toast('Nothing to save yet — capture or type the line first.'); return; }
     if (existing) {
       Object.assign(existing, { quote, title, podcast, t, doodle: st.doodle, thumb: st.thumb, audio: st.audio });
+      delete existing.draft;
       persist(); location.hash = '#/s/' + existing.id; route();
       return;
     }
@@ -941,11 +964,15 @@ function renderDetail(sn){
   bindJumps(sn);   // real Spotify seek when connected, plain link otherwise
 
   if (needsLine) {
-    const cap = mountLineCapture(document.getElementById('lineCapture'), { autostart: autoListen });
+    const cap = mountLineCapture(document.getElementById('lineCapture'), {
+      autostart: autoListen,
+      initialQuote: sn.draft || '',                       // restore a half-written line
+      onInput: v => { sn.draft = v; persistDraft(); }      // and keep it as you write
+    });
     const saveLine = () => {
       const q = cap.getQuote();
       if (!q) { toast('Say or type the line first.'); return; }
-      sn.quote = q; persist(); renderDetail(sn);
+      sn.quote = q; delete sn.draft; persist(); renderDetail(sn);
     };
     document.getElementById('saveLine').onclick = () => {
       if (cap.isActive()) { cap.stop(); setTimeout(saveLine, 500); } else saveLine();
@@ -957,11 +984,15 @@ function renderDetail(sn){
 
   const thText = document.getElementById('thText');
   const thRec = document.getElementById('thRec');
+  thText.value = sn.thDraft || '';                                      // restore a half-written thought
+  const keepThought = () => { sn.thDraft = thText.value; persistDraft(); };
+  thText.addEventListener('input', keepThought);
   let thBase = '';
   const thLst = makeListener({
-    onLive: (finals, interim) => { thText.value = (thBase + ' ' + finals + interim).trim(); },
+    onLive: (finals, interim) => { thText.value = (thBase + ' ' + finals + interim).trim(); keepThought(); },
     onDone: (finals, interim) => {
       thText.value = (thBase + ' ' + finals + interim).trim();
+      keepThought();
       thRec.classList.remove('stop');
       thRec.innerHTML = '&#127908; Speak';
     },
@@ -983,7 +1014,7 @@ function renderDetail(sn){
     // auto-stamp with the shared moment's position so the thought links straight
     // back to that exact second — no manual timestamp to type
     sn.thoughts.push({ id: uid(), at: new Date().toISOString(), text, pos: sn.t });
-    persist(); renderDetail(sn);
+    delete sn.thDraft; persist(); renderDetail(sn);
   };
   sn.thoughts.forEach(th => {
     const b = document.getElementById('thdel-' + th.id);
